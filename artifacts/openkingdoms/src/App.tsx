@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Accessibility,
   ArrowRight,
   BookOpen,
   Castle,
@@ -11,13 +12,21 @@ import {
   Hammer,
   Landmark,
   Menu,
+  Moon,
   Minus,
   Mountain,
+  Palette,
   Swords,
+  Sun,
   Users,
   Wheat,
   X,
 } from 'lucide-react';
+import {
+  CampaignCanvas,
+  type CanvasPalette,
+  type CanvasRegion,
+} from '@/components/campaign-canvas';
 
 type Banner = { name: string; color: string; secondary: string };
 type RegionKind = 'player' | 'rival' | 'neutral';
@@ -35,6 +44,7 @@ type Region = {
   label: [number, number];
 };
 type Campaign = {
+  edition: 'Canvas';
   nation: string;
   banner: Banner;
   turn: number;
@@ -45,6 +55,14 @@ type Campaign = {
   log: string[];
 };
 
+type ThemeKey = 'parchment' | 'midnight' | 'meadow';
+
+type ThemePreset = {
+  name: string;
+  description: string;
+  canvas: CanvasPalette;
+};
+
 const banners: Banner[] = [
   { name: 'Ember', color: '#bb5141', secondary: '#e6bd58' },
   { name: 'Tide', color: '#50768a', secondary: '#d9b75d' },
@@ -52,6 +70,54 @@ const banners: Banner[] = [
   { name: 'Dusk', color: '#695978', secondary: '#d7a961' },
   { name: 'Ivory', color: '#c7a86c', secondary: '#334760' },
 ];
+
+const themePresets: Record<ThemeKey, ThemePreset> = {
+  parchment: {
+    name: 'Parchment',
+    description: 'The original illuminated chronicle',
+    canvas: {
+      water: '#d2ddcf',
+      land: '#e6d9ba',
+      player: '#7d9f8d',
+      rival: '#bf826e',
+      neutral: '#d7bd7e',
+      ink: '#29384f',
+      mutedInk: '#685c4a',
+      road: '#9f835b',
+      selection: '#253247',
+    },
+  },
+  midnight: {
+    name: 'Midnight',
+    description: 'Deep ink with ember borders',
+    canvas: {
+      water: '#21354a',
+      land: '#39475a',
+      player: '#4e8879',
+      rival: '#ad6558',
+      neutral: '#aa8954',
+      ink: '#f1e3c5',
+      mutedInk: '#d4c18e',
+      road: '#c7a967',
+      selection: '#f2c45d',
+    },
+  },
+  meadow: {
+    name: 'Meadow',
+    description: 'A gentler field map for long sessions',
+    canvas: {
+      water: '#c7ddd2',
+      land: '#e7e0bf',
+      player: '#5d9272',
+      rival: '#a75e55',
+      neutral: '#c29b55',
+      ink: '#1f4038',
+      mutedInk: '#536c5a',
+      road: '#8b754e',
+      selection: '#1b3932',
+    },
+  },
+};
 
 const baseRegions: Region[] = [
   {
@@ -144,6 +210,7 @@ const regionById = (regions: Region[], id: string) => regions.find((region) => r
 
 function makeNewCampaign(nation: string, banner: Banner): Campaign {
   return {
+    edition: 'Canvas',
     nation: nation.trim() || 'The Unnamed Crown',
     banner,
     turn: 1,
@@ -158,9 +225,162 @@ function makeNewCampaign(nation: string, banner: Banner): Campaign {
 function readCampaign(): Campaign | null {
   try {
     const raw = localStorage.getItem('openkingdoms-campaign');
-    return raw ? (JSON.parse(raw) as Campaign) : null;
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as Partial<Campaign>;
+    if (
+      !saved ||
+      typeof saved.nation !== 'string' ||
+      !Array.isArray(saved.regions)
+    ) {
+      return null;
+    }
+
+    const savedRegions = saved.regions as Partial<Region>[];
+    const regions = baseRegions.map((base) => {
+      const savedRegion = savedRegions.find((region) => region.id === base.id);
+      if (!savedRegion) return { ...base };
+      const savedKind =
+        savedRegion.kind === 'player' ||
+        savedRegion.kind === 'rival' ||
+        savedRegion.kind === 'neutral'
+          ? savedRegion.kind
+          : base.kind;
+      const savedSettlement =
+        savedRegion.settlement === 'Village' ||
+        savedRegion.settlement === 'Town' ||
+        savedRegion.settlement === 'City'
+          ? savedRegion.settlement
+          : base.settlement;
+      return {
+        ...base,
+        ...savedRegion,
+        kind: savedKind,
+        settlement: savedSettlement,
+        forces:
+          typeof savedRegion.forces === 'number' && savedRegion.forces >= 0
+            ? savedRegion.forces
+            : base.forces,
+        barracks: Boolean(savedRegion.barracks),
+      };
+    });
+
+    return {
+      edition: 'Canvas',
+      nation: saved.nation.slice(0, 28),
+      banner:
+        saved.banner &&
+        typeof saved.banner.name === 'string' &&
+        typeof saved.banner.color === 'string' &&
+        typeof saved.banner.secondary === 'string'
+          ? saved.banner
+          : banners[0],
+      turn: typeof saved.turn === 'number' && saved.turn > 0 ? saved.turn : 1,
+      gold: typeof saved.gold === 'number' && saved.gold >= 0 ? saved.gold : 145,
+      food: typeof saved.food === 'number' && saved.food >= 0 ? saved.food : 120,
+      forces:
+        typeof saved.forces === 'number' && saved.forces >= 0
+          ? saved.forces
+          : 48,
+      regions,
+      log: Array.isArray(saved.log)
+        ? saved.log.filter((entry): entry is string => typeof entry === 'string').slice(0, 4)
+        : ['The first standard was raised at Aurelian Reach.'],
+    };
   } catch {
     return null;
+  }
+}
+
+function ThemeControl({
+  theme,
+  setTheme,
+  reducedMotion,
+  setReducedMotion,
+  open,
+  setOpen,
+}: {
+  theme: ThemeKey;
+  setTheme: (theme: ThemeKey) => void;
+  reducedMotion: boolean;
+  setReducedMotion: (value: boolean) => void;
+  open: boolean;
+  setOpen: (value: boolean) => void;
+}) {
+  return (
+    <div className="theme-control">
+      <button
+        className="button-quiet theme-toggle"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls="theme-menu"
+        data-testid="button-open-appearance"
+      >
+        <Palette size={14} />
+        <span>Appearance</span>
+      </button>
+      {open && (
+        <div className="theme-menu" id="theme-menu" role="dialog" aria-label="Appearance settings">
+          <div className="theme-menu-heading">
+            <div>
+              <div className="panel-kicker">Future cosmetics</div>
+              <strong>Choose a palette</strong>
+            </div>
+            <button
+              className="close-button"
+              onClick={() => setOpen(false)}
+              aria-label="Close appearance settings"
+              data-testid="button-close-appearance"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="theme-options">
+            {(Object.keys(themePresets) as ThemeKey[]).map((key) => (
+              <button
+                key={key}
+                className={`theme-option ${theme === key ? 'is-selected' : ''}`}
+                onClick={() => setTheme(key)}
+                aria-pressed={theme === key}
+                data-testid={`button-theme-${key}`}
+              >
+                <span className={`theme-swatch theme-swatch-${key}`} />
+                <span>
+                  <strong>{themePresets[key].name}</strong>
+                  <small>{themePresets[key].description}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+          <label className="motion-option">
+            <input
+              type="checkbox"
+              checked={reducedMotion}
+              onChange={(event) => setReducedMotion(event.target.checked)}
+              data-testid="checkbox-reduced-motion"
+            />
+            <Accessibility size={14} />
+            <span>Reduce motion</span>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function readTheme(): ThemeKey {
+  try {
+    const saved = localStorage.getItem('openkingdoms-theme');
+    return saved === 'midnight' || saved === 'meadow' ? saved : 'parchment';
+  } catch {
+    return 'parchment';
+  }
+}
+
+function readReducedMotion(): boolean {
+  try {
+    return localStorage.getItem('openkingdoms-reduced-motion') === 'true';
+  } catch {
+    return false;
   }
 }
 
@@ -172,10 +392,34 @@ function App() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean } | null>(null);
+  const [theme, setTheme] = useState<ThemeKey>(() => readTheme());
+  const [reducedMotion, setReducedMotion] = useState(() => readReducedMotion());
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const guideCloseRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (campaign) localStorage.setItem('openkingdoms-campaign', JSON.stringify(campaign));
   }, [campaign]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('openkingdoms-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('reduce-motion', reducedMotion);
+    localStorage.setItem('openkingdoms-reduced-motion', String(reducedMotion));
+  }, [reducedMotion]);
+
+  useEffect(() => {
+    if (!guideOpen) return;
+    guideCloseRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setGuideOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [guideOpen]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -189,6 +433,8 @@ function App() {
   );
   const playerRegions = campaign?.regions.filter((region) => region.kind === 'player') ?? [];
   const objectiveProgress = Math.min(100, Math.round((playerRegions.length / 3) * 100));
+  const canvasRegions: CanvasRegion[] = campaign?.regions ?? [];
+  const canvasPalette = themePresets[theme].canvas;
 
   const announce = (text: string, error = false) => setFeedback({ text, error });
 
@@ -307,9 +553,19 @@ function App() {
       <main className="start-screen">
         <div className="start-glow" />
         <div className="start-glow" />
+        <div className="start-appearance">
+          <ThemeControl
+            theme={theme}
+            setTheme={setTheme}
+            reducedMotion={reducedMotion}
+            setReducedMotion={setReducedMotion}
+            open={appearanceOpen}
+            setOpen={setAppearanceOpen}
+          />
+        </div>
         <div className="start-grid">
           <section className="start-copy ink-rise">
-            <div className="eyebrow">A single-player campaign</div>
+            <div className="eyebrow">A single-player campaign · Canvas edition</div>
             <h1 className="start-title">Open<br /><em>Kingdoms</em></h1>
             <p className="start-subtitle">
               Every border begins as a line of ink. Name your nation, raise its standard, and decide what the map remembers.
@@ -361,7 +617,7 @@ function App() {
         <aside className="sidebar">
           <div className="brand-mark">
             <div className="brand-seal"><Crown size={18} /></div>
-            <div className="brand-name">OpenKingdoms<small>the living chronicle</small></div>
+            <div className="brand-name">OpenKingdoms<small>canvas edition · living chronicle</small></div>
           </div>
           <button className="mobile-menu button-quiet" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label="Toggle menu" data-testid="button-toggle-menu"><Menu size={16} /></button>
           <nav style={{ display: mobileNavOpen ? 'block' : undefined }}>
@@ -378,10 +634,18 @@ function App() {
         <section className="main-area">
           <header className="topbar">
             <div>
-              <div className="page-kicker">Year of the first crown · Chronicle {String(campaign.turn).padStart(2, '0')}</div>
+              <div className="page-kicker">Canvas edition · Year of the first crown · Chronicle {String(campaign.turn).padStart(2, '0')}</div>
               <h1 className="page-title">{campaign.nation}</h1>
             </div>
             <div className="turn-control">
+              <ThemeControl
+                theme={theme}
+                setTheme={setTheme}
+                reducedMotion={reducedMotion}
+                setReducedMotion={setReducedMotion}
+                open={appearanceOpen}
+                setOpen={setAppearanceOpen}
+              />
               <div className="turn-count"><span>Current turn</span><strong data-testid="text-current-turn">{campaign.turn}</strong></div>
               <button className="button-primary" onClick={advanceTurn} data-testid="button-advance-turn"><ArrowRight size={15} /><span>Advance turn</span></button>
             </div>
@@ -400,32 +664,40 @@ function App() {
                 <div><div className="panel-kicker">The known realm</div><h2>Borderlands &amp; banners</h2></div>
                 <div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival</span></div>
               </div>
-              <svg className="map-art" viewBox="0 0 760 390" role="img" aria-label="Map of the known realm">
-                <path className="map-water" d="M0 0h760v390H0z" />
-                <path className="road" d="M174 213 C235 182 263 200 326 249 S443 242 548 262 S600 190 634 168" />
-                <path className="road" d="M141 121 C224 142 240 108 278 122 S350 165 355 221" />
-                {campaign.regions.map((region) => (
-                  <g
-                    key={region.id}
-                    onClick={() => setSelectedId(region.id)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedId(region.id); }}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`Select ${region.name}`}
-                    data-testid={`map-region-${region.id}`}
-                  >
-                    <path className={`map-land-base map-region is-${region.kind} ${selectedId === region.id ? 'is-selected' : ''}`} d={region.path} />
-                    <path className="region-outline" d={region.path} />
-                    <text className="map-label" x={region.label[0]} y={region.label[1]}>{region.name.replace(' ', '\n')}</text>
-                    <text className="map-small-label" x={region.label[0]} y={region.label[1] + 17}>{region.settlement.toUpperCase()}</text>
-                    {region.kind === 'player' && <path d={`M${region.label[0] - 5} ${region.label[1] - 26} h10 l-5 5z`} fill={campaign.banner.color} />}
-                    {region.kind === 'rival' && <Swords x={region.label[0] - 7} y={region.label[1] + 22} size={14} color="#874e43" />}
-                  </g>
-                ))}
-                <g transform="translate(692 57)"><circle className="map-compass" cx="0" cy="0" r="19" /><path className="map-compass" d="M0-15L4 0 0 15-4 0zM-15 0L0 4 15 0 0-4z" /><text className="map-compass-text" x="0" y="-24">N</text></g>
-                <g transform="translate(44 342)"><path className="map-compass" d="M0 0h70M0-5v10M35-5v10M70-5v10" /><text className="map-small-label" x="35" y="18">50 MILES</text></g>
-              </svg>
-              <p className="map-note"><strong>Choose your decision.</strong> Click a region to inspect its claim.</p>
+              <div className="map-canvas-wrap" id="map-help">
+                <CampaignCanvas
+                  regions={canvasRegions}
+                  selectedId={selectedId}
+                  bannerColor={campaign.banner.color}
+                  palette={canvasPalette}
+                  onSelect={setSelectedId}
+                />
+              </div>
+              <p className="map-note"><strong>Choose your decision.</strong> Click a region or use the accessible index below to inspect its claim.</p>
+              <section className="accessible-map-index" aria-labelledby="accessible-map-title">
+                <div className="accessible-index-heading">
+                  <div>
+                    <div className="panel-kicker">Keyboard map</div>
+                    <h3 id="accessible-map-title">Accessible region index</h3>
+                  </div>
+                  <span className="mono">{campaign.regions.length} regions</span>
+                </div>
+                <div className="accessible-region-grid">
+                  {campaign.regions.map((region) => (
+                    <button
+                      type="button"
+                      key={region.id}
+                      className={`region-index-button ${selectedId === region.id ? 'is-selected' : ''}`}
+                      onClick={() => setSelectedId(region.id)}
+                      aria-pressed={selectedId === region.id}
+                      data-testid={`button-select-region-${region.id}`}
+                    >
+                      <span>{region.name}</span>
+                      <small>{region.kind === 'player' ? 'Your land' : region.kind === 'rival' ? 'Rival claim' : 'Unclaimed'} · {region.settlement} · {region.forces} forces</small>
+                    </button>
+                  ))}
+                </div>
+              </section>
             </section>
 
             <div className="right-stack">
@@ -480,7 +752,7 @@ function App() {
       {guideOpen && (
         <div className="guide-overlay" onClick={(event) => { if (event.target === event.currentTarget) setGuideOpen(false); }}>
           <aside className="guide-drawer" role="dialog" aria-modal="true" aria-label="Field guide">
-            <div className="guide-header"><div><div className="panel-kicker">A primer for sovereigns</div><h2>Field guide</h2></div><button className="close-button" onClick={() => setGuideOpen(false)} aria-label="Close guide" data-testid="button-close-guide"><X size={20} /></button></div>
+            <div className="guide-header"><div><div className="panel-kicker">A primer for sovereigns</div><h2>Field guide</h2></div><button ref={guideCloseRef} className="close-button" onClick={() => setGuideOpen(false)} aria-label="Close guide" data-testid="button-close-guide"><X size={20} /></button></div>
             <div className="guide-section"><h3>Read the map</h3><p>Every region is a decision waiting to be made. Green lands answer to your crown; red lands are rivals; gold lands are still persuadable.</p></div>
             <div className="guide-section"><h3>Grow your realm</h3><ul className="guide-list"><li><Coins size={14} /> <span>Advance a turn to gather gold and food from every region you hold.</span></li><li><Hammer size={14} /> <span>Barracks cost 80 gold and make each recruitment call worth 16 soldiers instead of 10.</span></li><li><Landmark size={14} /> <span>Upgrade villages into towns and towns into cities. Each charter costs more than the last.</span></li></ul></div>
             <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival beside your territory. If your border army has a margin of 12 soldiers over its defenders, the attack button will become available.</p></div>
@@ -489,6 +761,7 @@ function App() {
         </div>
       )}
       {feedback && <div className={`feedback ${feedback.error ? 'error' : ''}`} role="status" data-testid="status-feedback">{feedback.text}</div>}
+      <div className="sr-only" aria-live="polite" aria-atomic="true" data-testid="status-live-region">{feedback?.text ?? ''}</div>
     </main>
   );
 }

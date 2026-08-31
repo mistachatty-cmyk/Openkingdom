@@ -1,6 +1,6 @@
-# [Project name]
+# OpenKingdoms
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An accessible, single-player HTML5 strategy game where players found a nation, grow settlements, raise forces, and redraw borders on a living campaign map.
 
 ## Run & Operate
 
@@ -22,15 +22,27 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/openkingdoms/src/App.tsx` — campaign state, founding flow, actions, accessibility announcements, and edition controls
+- `artifacts/openkingdoms/src/components/campaign-canvas.tsx` — HTML5 Canvas map renderer with an accessible DOM region index
+- `artifacts/openkingdoms/src/index.css` — shared edition tokens, palettes, responsive layout, focus states, and reduced-motion rules
+- `classic` — frozen source branch for the original playable campaign build
+- `canvas-edition` — active branch for the Canvas prototype and future editions
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The map uses HTML5 Canvas for visual rendering while region buttons provide a keyboard and screen-reader accessible companion.
+- Theme palettes are token-driven and persisted locally so future cosmetics can change without touching game rules.
+- Campaign saves are migrated defensively when loaded so older local saves remain usable.
+- Classic is preserved as a source branch; new edition work proceeds separately on `canvas-edition`.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Found a nation with a custom name and banner
+- Inspect and select map regions
+- Build barracks, recruit forces, upgrade settlements, and attack adjacent rivals
+- Advance turns to gather resources
+- Switch between Parchment, Midnight, and Meadow palettes
+- Enable reduced motion and use keyboard-friendly region selection
 
 ## User preferences
 
