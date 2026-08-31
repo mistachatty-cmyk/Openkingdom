@@ -174,6 +174,12 @@ export function CampaignCanvas({
         y: current.y + y / current.scale,
       }),
     );
+    const horizontal = x > 0 ? 'left' : x < 0 ? 'right' : '';
+    const vertical = y > 0 ? 'up' : y < 0 ? 'down' : '';
+    const direction = [horizontal, vertical].filter(Boolean).join(' and ');
+    if (direction) {
+      setViewAnnouncement(`Map panned ${direction}. Use the arrow keys to continue moving.`);
+    }
   };
 
   useEffect(() => {
@@ -331,11 +337,17 @@ export function CampaignCanvas({
     const context = canvas.getContext('2d');
     if (!context) return;
 
-    for (const region of [...regions].reverse()) {
-      if (context.isPointInPath(new Path2D(region.path), point.x, point.y)) {
-        onSelect(region.id);
-        return;
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    try {
+      for (const region of [...regions].reverse()) {
+        if (context.isPointInPath(new Path2D(region.path), point.x, point.y)) {
+          onSelect(region.id);
+          return;
+        }
       }
+    } finally {
+      context.restore();
     }
   };
 
@@ -449,6 +461,9 @@ export function CampaignCanvas({
         aria-describedby="map-navigation-help"
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown + - 0"
         data-testid="canvas-campaign-map"
+        data-map-scale={view.scale}
+        data-map-x={view.x}
+        data-map-y={view.y}
       />
       <div className="map-navigation" aria-label="Map navigation controls">
         <div className="map-zoom-controls">
