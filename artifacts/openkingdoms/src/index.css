@@ -105,6 +105,17 @@
 @keyframes map-in { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: scale(1); } }
 @keyframes pulse-mark { 0%, 100% { opacity: .55; transform: scale(.92); } 50% { opacity: 1; transform: scale(1.06); } }
 @keyframes draw-line { from { stroke-dashoffset: 180; } to { stroke-dashoffset: 0; } }
+@keyframes feedback-wash {
+  0% { opacity: 0; }
+  16% { opacity: .8; }
+  100% { opacity: 0; }
+}
+@keyframes feedback-burst {
+  0% { opacity: 0; transform: translate(-50%, -5px) scale(.88); }
+  18% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  72% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, 3px) scale(1.04); }
+}
 
 .app-shell {
   min-height: 100dvh;
@@ -359,9 +370,38 @@
 .feedback {
   position: fixed; right: 26px; bottom: 24px; z-index: 30; max-width: 320px; padding: 13px 16px;
   color: #f8ecd4; background: #273b55; border-left: 3px solid #d5a746; box-shadow: var(--shadow-deep);
-  font-size: 11px; line-height: 1.45; animation: ink-rise .25s ease both;
+  display: flex; align-items: flex-start; gap: 10px; font-size: 11px; line-height: 1.45; animation: ink-rise .25s ease both;
 }
 .feedback.error { border-left-color: #df765f; }
+.feedback-icon { color: #e5bf5d; flex: 0 0 auto; margin-top: 1px; }
+.feedback.error .feedback-icon { color: #ee927d; }
+.feedback-aura {
+  --feedback-color: var(--edition-accent);
+  position: fixed; inset: 0; z-index: 11; pointer-events: none;
+  background: radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--feedback-color) 18%, transparent), transparent 34%);
+  animation: feedback-wash 1.1s ease-out both;
+}
+.feedback-aura::before {
+  content: ""; position: absolute; inset: 13px;
+  border: 1px solid color-mix(in srgb, var(--feedback-color) 48%, transparent);
+}
+.feedback-burst {
+  position: absolute; top: 19px; left: 50%; display: flex; align-items: center; gap: 7px;
+  color: var(--feedback-color); font-family: var(--app-font-mono); font-size: 8px;
+  font-weight: 500; letter-spacing: .13em; text-transform: uppercase; white-space: nowrap;
+  animation: feedback-burst 1.1s ease-out both;
+}
+.feedback-burst svg { filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--feedback-color) 35%, transparent)); }
+.feedback-aura-build { --feedback-color: #d3a447; }
+.feedback-aura-upgrade { --feedback-color: #b98932; }
+.feedback-aura-recruit { --feedback-color: #c34e3d; }
+.feedback-aura-victory { --feedback-color: #4e8879; }
+.feedback-aura-harvest { --feedback-color: #b78a36; }
+.feedback-aura-welcome { --feedback-color: #d8b35a; }
+.feedback-aura-error { --feedback-color: #df765f; }
+.feedback-aura-subtle { opacity: .65; }
+.feedback-aura-subtle .feedback-burst { opacity: .7; }
+.feedback-aura-text { display: none; }
 .mobile-menu { display: none; }
 
 @media (max-width: 1020px) {
@@ -694,6 +734,8 @@ html[data-theme='meadow'] {
 .theme-swatch-parchment { background: linear-gradient(135deg, #e9dfc8 0 48%, #7d9f8d 49% 72%, #c34e3d 73%); }
 .theme-swatch-midnight { background: linear-gradient(135deg, #101b2b 0 48%, #4e8879 49% 72%, #e0b34e 73%); }
 .theme-swatch-meadow { background: linear-gradient(135deg, #d5e2d5 0 48%, #5d9272 49% 72%, #a94f3d 73%); }
+.feedback-settings { border-top: 1px solid var(--edition-border); padding-top: 12px; }
+.feedback-settings-label { color: var(--edition-ink); font-family: var(--app-font-mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
 .motion-option {
   display: flex;
   align-items: center;
@@ -703,7 +745,16 @@ html[data-theme='meadow'] {
   color: var(--edition-muted);
   font-size: 10px;
 }
+.feedback-sound-option { border-top: 0; padding-top: 10px; }
 .motion-option input { accent-color: var(--edition-primary); }
+.feedback-level-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: var(--edition-muted); font-size: 10px; padding-top: 10px;
+}
+.feedback-level-option select {
+  border: 1px solid var(--edition-border); background: color-mix(in srgb, var(--edition-panel) 76%, transparent);
+  color: var(--edition-ink); padding: 5px 7px; font-family: var(--app-font-mono); font-size: 9px;
+}
 
 button:focus-visible,
 input:focus-visible,
@@ -730,6 +781,7 @@ html.reduce-motion *::after {
   transition-duration: .01ms !important;
   scroll-behavior: auto !important;
 }
+html.reduce-motion .feedback-aura { display: none; }
 
 @media (max-width: 720px) {
   .map-canvas-wrap { height: 350px; }

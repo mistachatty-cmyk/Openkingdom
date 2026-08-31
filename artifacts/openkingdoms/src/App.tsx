@@ -19,6 +19,7 @@ import {
   Swords,
   Sun,
   Users,
+  Volume2,
   Wheat,
   X,
 } from 'lucide-react';
@@ -56,6 +57,9 @@ type Campaign = {
 };
 
 type ThemeKey = 'parchment' | 'midnight' | 'meadow';
+type FeedbackLevel = 'full' | 'subtle' | 'text';
+type FeedbackTone = 'general' | 'welcome' | 'build' | 'upgrade' | 'recruit' | 'victory' | 'harvest' | 'error';
+type FeedbackNotice = { text: string; error?: boolean; tone: FeedbackTone; id: number };
 
 type ThemePreset = {
   name: string;
@@ -296,6 +300,10 @@ function ThemeControl({
   setTheme,
   reducedMotion,
   setReducedMotion,
+  soundEnabled,
+  setSoundEnabled,
+  feedbackLevel,
+  setFeedbackLevel,
   open,
   setOpen,
 }: {
@@ -303,6 +311,10 @@ function ThemeControl({
   setTheme: (theme: ThemeKey) => void;
   reducedMotion: boolean;
   setReducedMotion: (value: boolean) => void;
+  soundEnabled: boolean;
+  setSoundEnabled: (value: boolean) => void;
+  feedbackLevel: FeedbackLevel;
+  setFeedbackLevel: (value: FeedbackLevel) => void;
   open: boolean;
   setOpen: (value: boolean) => void;
 }) {
@@ -322,8 +334,8 @@ function ThemeControl({
         <div className="theme-menu" id="theme-menu" role="dialog" aria-label="Appearance settings">
           <div className="theme-menu-heading">
             <div>
-              <div className="panel-kicker">Future cosmetics</div>
-              <strong>Choose a palette</strong>
+              <div className="panel-kicker">Royal preferences</div>
+              <strong>Shape the atmosphere</strong>
             </div>
             <button
               className="close-button"
@@ -350,6 +362,32 @@ function ThemeControl({
                 </span>
               </button>
             ))}
+          </div>
+          <div className="feedback-settings">
+            <div className="feedback-settings-label">Decision feedback</div>
+            <label className="motion-option feedback-sound-option">
+              <input
+                type="checkbox"
+                checked={soundEnabled}
+                onChange={(event) => setSoundEnabled(event.target.checked)}
+                data-testid="checkbox-sound-feedback"
+              />
+              <Volume2 size={14} />
+              <span>Play decision sounds</span>
+            </label>
+            <label className="feedback-level-option" htmlFor="feedback-level">
+              <span>Visual flourish</span>
+              <select
+                id="feedback-level"
+                value={feedbackLevel}
+                onChange={(event) => setFeedbackLevel(event.target.value as FeedbackLevel)}
+                data-testid="select-feedback-level"
+              >
+                <option value="full">Full heraldry</option>
+                <option value="subtle">Subtle ink</option>
+                <option value="text">Text only</option>
+              </select>
+            </label>
           </div>
           <label className="motion-option">
             <input
@@ -378,10 +416,40 @@ function readTheme(): ThemeKey {
 
 function readReducedMotion(): boolean {
   try {
-    return localStorage.getItem('openkingdoms-reduced-motion') === 'true';
+    const saved = localStorage.getItem('openkingdoms-reduced-motion');
+    if (saved !== null) return saved === 'true';
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   } catch {
     return false;
   }
+}
+
+function readSoundEnabled(): boolean {
+  try {
+    const saved = localStorage.getItem('openkingdoms-sound-feedback');
+    return saved === null ? true : saved !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function readFeedbackLevel(): FeedbackLevel {
+  try {
+    const saved = localStorage.getItem('openkingdoms-feedback-level');
+    return saved === 'subtle' || saved === 'text' ? saved : 'full';
+  } catch {
+    return 'full';
+  }
+}
+
+function FeedbackIcon({ tone }: { tone: FeedbackTone }) {
+  if (tone === 'build') return <Hammer size={16} />;
+  if (tone === 'upgrade') return <Landmark size={16} />;
+  if (tone === 'recruit') return <Users size={16} />;
+  if (tone === 'victory') return <Swords size={16} />;
+  if (tone === 'harvest') return <Wheat size={16} />;
+  if (tone === 'error') return <X size={16} />;
+  return <Crown size={16} />;
 }
 
 function App() {
@@ -391,11 +459,15 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>('aurelian');
   const [guideOpen, setGuideOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [feedback, setFeedback] = useState<{ text: string; error?: boolean } | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackNotice | null>(null);
   const [theme, setTheme] = useState<ThemeKey>(() => readTheme());
   const [reducedMotion, setReducedMotion] = useState(() => readReducedMotion());
+  const [soundEnabled, setSoundEnabled] = useState(() => readSoundEnabled());
+  const [feedbackLevel, setFeedbackLevel] = useState<FeedbackLevel>(() => readFeedbackLevel());
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const guideCloseRef = useRef<HTMLButtonElement>(null);
+  const feedbackSequenceRef = useRef(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     if (campaign) localStorage.setItem('openkingdoms-campaign', JSON.stringify(campaign));
@@ -410,6 +482,18 @@ function App() {
     document.documentElement.classList.toggle('reduce-motion', reducedMotion);
     localStorage.setItem('openkingdoms-reduced-motion', String(reducedMotion));
   }, [reducedMotion]);
+
+  useEffect(() => {
+    localStorage.setItem('openkingdoms-sound-feedback', String(soundEnabled));
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('openkingdoms-feedback-level', feedbackLevel);
+  }, [feedbackLevel]);
+
+  useEffect(() => () => {
+    void audioContextRef.current?.close();
+  }, []);
 
   useEffect(() => {
     if (!guideOpen) return;
@@ -436,13 +520,55 @@ function App() {
   const canvasRegions: CanvasRegion[] = campaign?.regions ?? [];
   const canvasPalette = themePresets[theme].canvas;
 
-  const announce = (text: string, error = false) => setFeedback({ text, error });
+  const playFeedbackSound = (tone: FeedbackTone) => {
+    if (!soundEnabled || tone === 'general' || typeof window === 'undefined') return;
+    const AudioContextConstructor = window.AudioContext
+      ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+
+    const context = audioContextRef.current ?? new AudioContextConstructor();
+    audioContextRef.current = context;
+    void context.resume().catch(() => undefined);
+
+    const notes: Record<Exclude<FeedbackTone, 'general'>, number[]> = {
+      welcome: [392, 523],
+      build: [196, 294, 392],
+      upgrade: [261, 329, 392, 523],
+      recruit: [196, 247, 294],
+      victory: [392, 494, 587, 784],
+      harvest: [330, 440, 660],
+      error: [146, 110],
+    };
+    const now = context.currentTime;
+    const gap = tone === 'victory' ? 0.1 : 0.075;
+    const duration = 0.18;
+    const master = context.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(tone === 'error' ? 0.045 : 0.065, now + 0.015);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + notes[tone].length * gap + duration);
+    master.connect(context.destination);
+
+    notes[tone].forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      oscillator.type = tone === 'error' ? 'sawtooth' : tone === 'victory' ? 'triangle' : 'sine';
+      oscillator.frequency.setValueAtTime(frequency, now + index * gap);
+      oscillator.connect(master);
+      oscillator.start(now + index * gap);
+      oscillator.stop(now + index * gap + duration);
+    });
+  };
+
+  const announce = (text: string, error = false, tone: FeedbackTone = error ? 'error' : 'general') => {
+    const id = ++feedbackSequenceRef.current;
+    setFeedback({ text, error, tone, id });
+    playFeedbackSound(tone);
+  };
 
   const startCampaign = () => {
     const next = makeNewCampaign(nationName, banners[bannerIndex]);
     setCampaign(next);
     setSelectedId('aurelian');
-    announce(`${next.nation} enters the chronicle.`);
+    announce(`${next.nation} enters the chronicle.`, false, 'welcome');
   };
 
   const restartCampaign = () => {
@@ -470,7 +596,7 @@ function App() {
       ),
       log: [`Barracks raised at ${selected.name}.`, ...current.log].slice(0, 4),
     }));
-    announce(`Barracks raised at ${selected.name}. Your levy grows stronger.`);
+    announce(`Barracks raised at ${selected.name}. Your levy grows stronger.`, false, 'build');
   };
 
   const upgradeSettlement = () => {
@@ -490,7 +616,7 @@ function App() {
       ),
       log: [`${selected.name} chartered as a ${nextSettlement[selected.settlement]}.`, ...current.log].slice(0, 4),
     }));
-    announce(`${selected.name} is now a ${nextSettlement[selected.settlement]}.`);
+    announce(`${selected.name} is now a ${nextSettlement[selected.settlement]}.`, false, 'upgrade');
   };
 
   const recruitForces = () => {
@@ -508,7 +634,7 @@ function App() {
       ),
       log: [`${bonus} forces recruited at ${selected.name}.`, ...current.log].slice(0, 4),
     }));
-    announce(`${bonus} new forces answer the call at ${selected.name}.`);
+    announce(`${bonus} new forces answer the call at ${selected.name}.`, false, 'recruit');
   };
 
   const launchAttack = () => {
@@ -531,7 +657,7 @@ function App() {
       ),
       log: [`Victory at ${selected.name}; the border moves east.`, ...current.log].slice(0, 4),
     }));
-    announce(`Victory. ${selected.name} now bears your standard.`);
+    announce(`Victory. ${selected.name} now bears your standard.`, false, 'victory');
   };
 
   const advanceTurn = () => {
@@ -545,7 +671,7 @@ function App() {
       food: current.food + foodIncome,
       log: [`Turn ${current.turn + 1}: the realm gathers its harvest.`, ...current.log].slice(0, 4),
     }));
-    announce(`Turn ${campaign.turn + 1}. The realm gathers ${income} gold and ${foodIncome} food.`);
+    announce(`Turn ${campaign.turn + 1}. The realm gathers ${income} gold and ${foodIncome} food.`, false, 'harvest');
   };
 
   if (!campaign) {
@@ -559,6 +685,10 @@ function App() {
             setTheme={setTheme}
             reducedMotion={reducedMotion}
             setReducedMotion={setReducedMotion}
+            soundEnabled={soundEnabled}
+            setSoundEnabled={setSoundEnabled}
+            feedbackLevel={feedbackLevel}
+            setFeedbackLevel={setFeedbackLevel}
             open={appearanceOpen}
             setOpen={setAppearanceOpen}
           />
@@ -643,6 +773,10 @@ function App() {
                 setTheme={setTheme}
                 reducedMotion={reducedMotion}
                 setReducedMotion={setReducedMotion}
+                soundEnabled={soundEnabled}
+                setSoundEnabled={setSoundEnabled}
+                feedbackLevel={feedbackLevel}
+                setFeedbackLevel={setFeedbackLevel}
                 open={appearanceOpen}
                 setOpen={setAppearanceOpen}
               />
@@ -760,7 +894,24 @@ function App() {
           </aside>
         </div>
       )}
-      {feedback && <div className={`feedback ${feedback.error ? 'error' : ''}`} role="status" data-testid="status-feedback">{feedback.text}</div>}
+      {feedback && (
+        <>
+          <div
+            key={`feedback-aura-${feedback.id}`}
+            className={`feedback-aura feedback-aura-${feedback.tone} feedback-aura-${feedbackLevel} ${feedback.error ? 'error' : ''}`}
+            aria-hidden="true"
+          >
+            <div className="feedback-burst">
+              <FeedbackIcon tone={feedback.tone} />
+              <span>{feedback.error ? 'A royal warning' : 'A new dispatch'}</span>
+            </div>
+          </div>
+          <div key={`feedback-notice-${feedback.id}`} className={`feedback ${feedback.error ? 'error' : ''}`} role="status" data-testid="status-feedback">
+            <span className="feedback-icon" aria-hidden="true"><FeedbackIcon tone={feedback.tone} /></span>
+            <span>{feedback.text}</span>
+          </div>
+        </>
+      )}
       <div className="sr-only" aria-live="polite" aria-atomic="true" data-testid="status-live-region">{feedback?.text ?? ''}</div>
     </main>
   );
