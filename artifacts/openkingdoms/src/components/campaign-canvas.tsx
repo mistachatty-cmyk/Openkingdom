@@ -89,20 +89,123 @@ function keepPointVisible(view: MapView, point: [number, number]): MapView {
   return clampView({ ...view, x, y });
 }
 
-function drawWrappedName(
+type LabelBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const MAP_UI_SAFE_ZONES: LabelBox[] = [
+  { x: 0, y: 0, width: 110, height: 92 },
+  { x: 608, y: 0, width: 152, height: 108 },
+  { x: 0, y: 308, width: 240, height: 82 },
+];
+
+function rectanglesOverlap(first: LabelBox, second: LabelBox) {
+  return (
+    first.x < second.x + second.width &&
+    first.x + first.width > second.x &&
+    first.y < second.y + second.height &&
+    first.y + first.height > second.y
+  );
+}
+
+function wrapLabel(
   context: CanvasRenderingContext2D,
   name: string,
-  x: number,
-  y: number,
+  maxWidth: number,
 ) {
-  const words = name.split(' ');
-  if (words.length < 2) {
-    context.fillText(name, x, y);
-    return;
+  const words = name.split(/\s+/);
+  const lines: string[] = [];
+  let current = '';
+
+  words.forEach((word) => {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && context.measureText(candidate).width > maxWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  });
+  if (current) lines.push(current);
+  return lines.length ? lines : [name];
+}
+
+function placeLabel(
+  context: CanvasRenderingContext2D,
+  region: CanvasRegion,
+  occupied: LabelBox[],
+  view: MapView,
+) {
+  const offsets: [number, number][] = [
+    [0, 0],
+    [0, 43],
+    [0, -43],
+    [-62, 0],
+    [62, 0],
+    [-48, 35],
+    [48, 35],
+    [-48, -35],
+    [48, -35],
+  ];
+
+  for (let fontSize = 15; fontSize >= 10; fontSize -= 1) {
+    context.font = `700 ${fontSize}px Georgia, serif`;
+    const lines = wrapLabel(context, region.name, 118);
+    const width = Math.min(
+      128,
+      Math.max(34, ...lines.map((line) => context.measureText(line).width + 12)),
+    );
+    const height = lines.length * 15 + 28;
+
+    for (const [offsetX, offsetY] of offsets) {
+      const x = Math.min(
+        VIEW_WIDTH - width / 2 - 8,
+        Math.max(width / 2 + 8, region.label[0] + offsetX),
+      );
+      const y = Math.min(
+        VIEW_HEIGHT - height / 2 - 8,
+        Math.max(height / 2 + 8, region.label[1] + offsetY),
+      );
+      const box = { x: x - width / 2, y: y - height / 2, width, height };
+      const screenBox = {
+        x: (box.x + view.x) * view.scale,
+        y: (box.y + view.y) * view.scale,
+        width: box.width * view.scale,
+        height: box.height * view.scale,
+      };
+
+      if (
+        !MAP_UI_SAFE_ZONES.some((safeZone) => rectanglesOverlap(screenBox, safeZone)) &&
+        !occupied.some((other) => rectanglesOverlap(box, other))
+      ) {
+        return {
+          x,
+          y,
+          width,
+          height,
+          lines,
+          fontSize,
+          offsetX,
+          offsetY,
+        };
+      }
+    }
   }
 
-  context.fillText(words.slice(0, -1).join(' '), x, y - 2);
-  context.fillText(words.at(-1) ?? '', x, y + 15);
+  context.font = '700 10px Georgia, serif';
+  return {
+    x: region.label[0],
+    y: region.label[1],
+    width: 90,
+    height: 43,
+    lines: wrapLabel(context, region.name, 78).slice(0, 2),
+    fontSize: 10,
+    offsetX: 0,
+    offsetY: 0,
+  };
 }
 
 export function CampaignCanvas({
@@ -230,9 +333,17 @@ export function CampaignCanvas({
       context.bezierCurveTo(350, 165, 355, 221, 355, 221);
       context.stroke();
 
+      const occupiedLabels: LabelBox[] = [];
       regions.forEach((region) => {
         const path = new Path2D(region.path);
         const isSelected = region.id === selectedId;
+        const label = placeLabel(context, region, occupiedLabels, view);
+        occupiedLabels.push({
+          x: label.x - label.width / 2,
+          y: label.y - label.height / 2,
+          width: label.width,
+          height: label.height,
+        });
         context.save();
         context.fillStyle =
           region.kind === 'player'
@@ -253,18 +364,30 @@ export function CampaignCanvas({
         context.restore();
 
         context.save();
+        if (label.offsetX !== 0 || label.offsetY !== 0) {
+          context.strokeStyle = palette.mutedInk;
+          context.globalAlpha = 0.58;
+          context.lineWidth = 1;
+          context.setLineDash([]);
+          context.beginPath();
+          context.moveTo(region.label[0], region.label[1]);
+          context.lineTo(label.x, label.y);
+          context.stroke();
+        }
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.fillStyle = palette.ink;
-        context.font = '700 15px Georgia, serif';
-        drawWrappedName(context, region.name, region.label[0], region.label[1]);
+        context.font = `700 ${label.fontSize}px Georgia, serif`;
+        label.lines.forEach((line, index) => {
+          const lineOffset = (index - (label.lines.length - 1) / 2) * 15;
+          context.fillText(line, label.x, label.y + lineOffset);
+        });
         context.fillStyle = palette.mutedInk;
         context.font = '500 8px "DM Mono", monospace';
-        context.letterSpacing = '1px';
         context.fillText(
           `${region.settlement.toUpperCase()} · ${region.forces}`,
-          region.label[0],
-          region.label[1] + 29,
+          label.x,
+          label.y + (label.lines.length - 1) * 7.5 + 25,
         );
 
         if (region.kind === 'player') {
@@ -290,37 +413,7 @@ export function CampaignCanvas({
         context.restore();
       });
 
-      context.save();
-      context.strokeStyle = palette.road;
-      context.lineWidth = 1;
-      context.setLineDash([]);
-      context.beginPath();
-      context.arc(692, 57, 19, 0, Math.PI * 2);
-      context.stroke();
-      context.beginPath();
-      context.moveTo(692, 42);
-      context.lineTo(696, 57);
-      context.lineTo(692, 72);
-      context.lineTo(688, 57);
-      context.closePath();
-      context.stroke();
-      context.font = '500 9px "DM Mono", monospace';
-      context.textAlign = 'center';
-      context.fillStyle = palette.road;
-      context.fillText('N', 692, 31);
-      context.beginPath();
-      context.moveTo(44, 342);
-      context.lineTo(114, 342);
-      context.moveTo(44, 337);
-      context.lineTo(44, 347);
-      context.moveTo(79, 337);
-      context.lineTo(79, 347);
-      context.moveTo(114, 337);
-      context.lineTo(114, 347);
-      context.stroke();
-      context.fillText('50 MILES', 79, 360);
       context.restore();
-       context.restore();
     };
 
     draw();
@@ -465,6 +558,14 @@ export function CampaignCanvas({
         data-map-x={view.x}
         data-map-y={view.y}
       />
+      <div className="map-compass-indicator" aria-hidden="true">
+        <span className="map-compass-arrow">↑</span>
+        <span>N</span>
+      </div>
+      <div className="map-scale-indicator" aria-hidden="true">
+        <span className="map-scale-line" />
+        <span>50 miles</span>
+      </div>
       <div className="map-navigation" aria-label="Map navigation controls">
         <div className="map-zoom-controls">
           <button

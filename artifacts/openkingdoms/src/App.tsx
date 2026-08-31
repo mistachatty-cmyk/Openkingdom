@@ -28,6 +28,11 @@ import {
   type CanvasPalette,
   type CanvasRegion,
 } from '@/components/campaign-canvas';
+import {
+  AccessibleRegionIndex,
+  DispatchList,
+  ResourceStrip,
+} from '@/components/campaign-panels';
 
 type Banner = { name: string; color: string; secondary: string };
 type RegionKind = 'player' | 'rival' | 'neutral';
@@ -713,7 +718,7 @@ function App() {
               maxLength={28}
               data-testid="input-nation-name"
             />
-            <div style={{ marginTop: 30 }}>
+            <div className="banner-section">
               <div className="form-label">Choose your standard</div>
               <div className="banner-row">
                 {banners.map((banner, index) => (
@@ -729,10 +734,10 @@ function App() {
                 ))}
               </div>
             </div>
-            <button className="button-primary" style={{ width: '100%', marginTop: 32 }} onClick={startCampaign} data-testid="button-found-nation">
+            <button className="button-primary found-button" onClick={startCampaign} data-testid="button-found-nation">
               Found the nation <ArrowRight size={15} />
             </button>
-            <p className="mono" style={{ color: '#89928d', fontSize: 9, margin: '18px 0 0', textAlign: 'center' }}>
+            <p className="mono save-note">
               Your campaign is saved locally in this browser
             </p>
           </section>
@@ -785,12 +790,14 @@ function App() {
             </div>
           </header>
 
-          <section className="resource-strip" aria-label="Realm resources">
-            <div className="resource-card"><div className="resource-label">Treasury</div><div className="resource-value"><Coins size={15} color="#a67035" /><strong data-testid="value-gold">{campaign.gold}</strong><span>gold</span></div></div>
-            <div className="resource-card"><div className="resource-label">Granary</div><div className="resource-value"><Wheat size={15} color="#a67035" /><strong data-testid="value-food">{campaign.food}</strong><span>food</span></div></div>
-            <div className="resource-card"><div className="resource-label">Royal forces</div><div className="resource-value"><Swords size={15} color="#a67035" /><strong data-testid="value-forces">{campaign.forces}</strong><span>soldiers</span></div></div>
-            <div className="resource-card"><div className="resource-label">Held territory</div><div className="resource-value"><Flag size={15} color="#a67035" /><strong data-testid="value-territory">{playerRegions.length}</strong><span>regions</span></div></div>
-          </section>
+          <ResourceStrip
+            items={[
+              { label: 'Treasury', value: campaign.gold, unit: 'gold', icon: Coins },
+              { label: 'Granary', value: campaign.food, unit: 'food', icon: Wheat },
+              { label: 'Royal forces', value: campaign.forces, unit: 'soldiers', icon: Swords },
+              { label: 'Held territory', value: playerRegions.length, unit: 'regions', icon: Flag },
+            ]}
+          />
 
           <div className="content-grid">
             <section className="map-panel map-in">
@@ -808,30 +815,11 @@ function App() {
                 />
               </div>
               <p className="map-note"><strong>Choose your decision.</strong> Click a region or use the accessible index below to inspect its claim. The map remembers your selection while you explore.</p>
-              <section className="accessible-map-index" aria-labelledby="accessible-map-title">
-                <div className="accessible-index-heading">
-                  <div>
-                    <div className="panel-kicker">Keyboard map</div>
-                    <h3 id="accessible-map-title">Accessible region index</h3>
-                  </div>
-                  <span className="mono">{campaign.regions.length} regions</span>
-                </div>
-                <div className="accessible-region-grid">
-                  {campaign.regions.map((region) => (
-                    <button
-                      type="button"
-                      key={region.id}
-                      className={`region-index-button ${selectedId === region.id ? 'is-selected' : ''}`}
-                      onClick={() => setSelectedId(region.id)}
-                      aria-pressed={selectedId === region.id}
-                      data-testid={`button-select-region-${region.id}`}
-                    >
-                      <span>{region.name}</span>
-                      <small>{region.kind === 'player' ? 'Your land' : region.kind === 'rival' ? 'Rival claim' : 'Unclaimed'} · {region.settlement} · {region.forces} forces</small>
-                    </button>
-                  ))}
-                </div>
-              </section>
+              <AccessibleRegionIndex
+                regions={campaign.regions}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
             </section>
 
             <div className="right-stack">
@@ -857,7 +845,7 @@ function App() {
                     ) : (
                       <div className="action-stack">
                         <button className="button-primary action-button" onClick={launchAttack} disabled={!selected.adjacent.some((id) => playerRegions.some((region) => region.id === id)) || (selected.adjacent.map((id) => regionById(campaign.regions, id)).find((region) => region?.kind === 'player')?.forces ?? 0) < selected.forces + 12} data-testid="button-launch-attack"><span><Swords size={14} /> Launch attack</span><span className="action-cost">Requires border army</span></button>
-                        <div className="mono" style={{ color: '#8a7b63', fontSize: 9, lineHeight: 1.5, padding: '0 3px' }}>A neighboring army must hold enough forces to survive the march.</div>
+                        <div className="attack-hint">A neighboring army must hold enough forces to survive the march.</div>
                       </div>
                     )}
                   </>
@@ -869,15 +857,10 @@ function App() {
                 <h3>Make the map yours.</h3>
                 <p>Hold three regions to establish a true kingdom. Build an army, then decide which border to redraw.</p>
                 <div className="objective-progress"><span style={{ width: `${objectiveProgress}%` }} /></div>
-                <div className="mono" style={{ color: '#d4c18e', fontSize: 9, marginTop: 8 }} data-testid="status-objective">{playerRegions.length} of 3 regions held</div>
+                <div className="mono objective-status" data-testid="status-objective">{playerRegions.length} of 3 regions held</div>
               </section>
 
-              <section className="panel" style={{ padding: 18 }}>
-                <div className="panel-kicker">Recent dispatches</div>
-                <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-                  {campaign.log.map((entry, index) => <div key={`${entry}-${index}`} className="mono" data-testid={`text-dispatch-${index}`} style={{ color: index === 0 ? '#a45140' : '#817763', fontSize: 9, lineHeight: 1.4, borderLeft: `2px solid ${index === 0 ? '#c35a45' : '#cbbb9d'}`, paddingLeft: 9 }}>{entry}</div>)}
-                </div>
-              </section>
+              <DispatchList entries={campaign.log} />
             </div>
           </div>
         </section>
