@@ -33,6 +33,13 @@ import {
   DispatchList,
   ResourceStrip,
 } from '@/components/campaign-panels';
+import {
+  FrontDossier,
+  FrontIndex,
+  FrontPlanner,
+  type FrontSourceOption,
+  type FrontSummary,
+} from '@/components/front-staging-panel';
 
 type Banner = { name: string; color: string; secondary: string };
 type RegionKind = 'player' | 'rival' | 'neutral';
@@ -49,6 +56,15 @@ type Region = {
   path: string;
   label: [number, number];
 };
+type Front = {
+  id: string;
+  name: string;
+  sourceRegionId: string;
+  targetRegionId: string;
+  committedForces: number;
+  travelTurns: number;
+  status: 'staged';
+};
 type Campaign = {
   edition: 'Canvas';
   nation: string;
@@ -58,6 +74,7 @@ type Campaign = {
   food: number;
   forces: number;
   regions: Region[];
+  fronts: Front[];
   log: string[];
 };
 
@@ -227,6 +244,7 @@ function makeNewCampaign(nation: string, banner: Banner): Campaign {
     food: 120,
     forces: 48,
     regions: baseRegions.map((region) => ({ ...region })),
+    fronts: [],
     log: ['The first standard was raised at Aurelian Reach.'],
   };
 }
@@ -273,6 +291,48 @@ function readCampaign(): Campaign | null {
       };
     });
 
+    const savedFronts = Array.isArray(saved.fronts) ? saved.fronts : [];
+    const fronts: Front[] = savedFronts.flatMap((front) => {
+      if (
+        !front ||
+        typeof front !== 'object' ||
+        typeof front.id !== 'string' ||
+        typeof front.name !== 'string' ||
+        typeof front.sourceRegionId !== 'string' ||
+        typeof front.targetRegionId !== 'string'
+      ) {
+        return [];
+      }
+      const source = regions.find((region) => region.id === front.sourceRegionId);
+      const target = regions.find((region) => region.id === front.targetRegionId);
+      const committedForces =
+        typeof front.committedForces === 'number' && front.committedForces >= 0
+          ? Math.floor(front.committedForces)
+          : 0;
+      if (
+        !source ||
+        !target ||
+        source.kind !== 'player' ||
+        target.kind === 'player' ||
+        !source.adjacent.includes(target.id) ||
+        !target.adjacent.includes(source.id)
+      ) {
+        return [];
+      }
+      return [{
+        id: front.id.slice(0, 80),
+        name: front.name.slice(0, 48) || `${target.name} Front`,
+        sourceRegionId: source.id,
+        targetRegionId: target.id,
+        committedForces,
+        travelTurns:
+          typeof front.travelTurns === 'number' && front.travelTurns > 0
+            ? Math.min(3, Math.floor(front.travelTurns))
+            : 1,
+        status: 'staged',
+      }];
+    });
+
     return {
       edition: 'Canvas',
       nation: saved.nation.slice(0, 28),
@@ -291,6 +351,7 @@ function readCampaign(): Campaign | null {
           ? saved.forces
           : 48,
       regions,
+      fronts,
       log: Array.isArray(saved.log)
         ? saved.log.filter((entry): entry is string => typeof entry === 'string').slice(0, 4)
         : ['The first standard was raised at Aurelian Reach.'],
@@ -470,6 +531,10 @@ function App() {
   const [soundEnabled, setSoundEnabled] = useState(() => readSoundEnabled());
   const [feedbackLevel, setFeedbackLevel] = useState<FeedbackLevel>(() => readFeedbackLevel());
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [activeFrontId, setActiveFrontId] = useState<string | null>(null);
+  const [frontDraftName, setFrontDraftName] = useState('');
+  const [frontDraftSourceId, setFrontDraftSourceId] = useState('');
+  const [frontDraftAllocation, setFrontDraftAllocation] = useState(0);
   const guideCloseRef = useRef<HTMLButtonElement>(null);
   const feedbackSequenceRef = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -524,6 +589,56 @@ function App() {
   const objectiveProgress = Math.min(100, Math.round((playerRegions.length / 3) * 100));
   const canvasRegions: CanvasRegion[] = campaign?.regions ?? [];
   const canvasPalette = themePresets[theme].canvas;
+  const frontSummaries = useMemo<FrontSummary[]>(() => {
+    if (!campaign) return [];
+    return campaign.fronts.flatMap((front) => {
+      const source = regionById(campaign.regions, front.sourceRegionId);
+      const target = regionById(campaign.regions, front.targetRegionId);
+      if (!source || !target) return [];
+      const projectedDefendingForces = source.forces + front.committedForces;
+      const outcome: FrontSummary['outcome'] =
+        front.committedForces <= 0
+          ? 'No forces staged'
+          : front.committedForces >= target.forces + 12
+            ? 'Strong advantage'
+            : front.committedForces > target.forces
+              ? 'Uncertain'
+              : 'Outmatched';
+      return [{
+        id: front.id,
+        name: front.name,
+        sourceRegionId: source.id,
+        targetRegionId: target.id,
+        sourceName: source.name,
+        targetName: target.name,
+        sourceForces: source.forces,
+        committedForces: front.committedForces,
+        targetForces: target.forces,
+        projectedDefendingForces,
+        supply: source.kind === 'player' && source.adjacent.includes(target.id) ? 'Supplied' : 'Broken supply',
+        travelTurns: front.travelTurns,
+        outcome,
+      }];
+    });
+  }, [campaign]);
+  const selectedTarget = selected && selected.kind !== 'player' ? selected : undefined;
+  const selectedTargetFronts = selectedTarget
+    ? frontSummaries.filter((front) => front.targetRegionId === selectedTarget.id)
+    : [];
+  const activeFrontSummary =
+    frontSummaries.find((front) => front.id === activeFrontId) ?? selectedTargetFronts[0];
+  const frontSourceOptions = useMemo<FrontSourceOption[]>(() => {
+    if (!campaign || !selectedTarget) return [];
+    return campaign.regions
+      .filter((region) =>
+        region.kind === 'player' &&
+        region.adjacent.includes(selectedTarget.id) &&
+        !campaign.fronts.some(
+          (front) => front.sourceRegionId === region.id && front.targetRegionId === selectedTarget.id,
+        ),
+      )
+      .map((region) => ({ id: region.id, name: region.name, forces: region.forces }));
+  }, [campaign, selectedTarget]);
 
   const playFeedbackSound = (tone: FeedbackTone) => {
     if (!soundEnabled || tone === 'general' || typeof window === 'undefined') return;
