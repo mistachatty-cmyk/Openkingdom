@@ -673,7 +673,7 @@ function App() {
                   onSelect={setSelectedId}
                 />
               </div>
-              <p className="map-note"><strong>Choose your decision.</strong> Click a region or use the accessible index below to inspect its claim.</p>
+              <p className="map-note"><strong>Choose your decision.</strong> Click a region or use the accessible index below to inspect its claim. The map remembers your selection while you explore.</p>
               <section className="accessible-map-index" aria-labelledby="accessible-map-title">
                 <div className="accessible-index-heading">
                   <div>
