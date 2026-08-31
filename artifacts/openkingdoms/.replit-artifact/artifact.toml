@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "OpenKingdoms"
+description = "A single-player real-time strategy game where players found a nation, expand across a living map, grow settlements from villages into cities, and use military force to overcome rival borders."
+version = "1.0.0"
+id = "artifacts/openkingdoms"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25630
+
+[services.development]
+run = "pnpm --filter @workspace/openkingdoms run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/openkingdoms", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/openkingdoms/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25630"
+BASE_PATH = "/"
