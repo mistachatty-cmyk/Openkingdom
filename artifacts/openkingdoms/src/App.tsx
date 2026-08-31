@@ -706,7 +706,7 @@ function App() {
               Every border begins as a line of ink. Name your nation, raise its standard, and decide what the map remembers.
             </p>
           </section>
-          <section className="start-form ink-rise" style={{ animationDelay: '.12s' }}>
+          <section className="start-form start-form-delay ink-rise">
             <div className="form-label">The founding decree</div>
             <label htmlFor="nation-name" className="sr-only">Nation name</label>
             <input
@@ -754,11 +754,11 @@ function App() {
             <div className="brand-seal"><Crown size={18} /></div>
             <div className="brand-name">OpenKingdoms<small>canvas edition · living chronicle</small></div>
           </div>
-          <button className="mobile-menu button-quiet" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label="Toggle menu" data-testid="button-toggle-menu"><Menu size={16} /></button>
-          <nav style={{ display: mobileNavOpen ? 'block' : undefined }}>
+          <button className="mobile-menu button-quiet" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label="Toggle royal desk menu" aria-expanded={mobileNavOpen} aria-controls="royal-desk-nav" data-testid="button-toggle-menu"><Menu size={16} /></button>
+          <nav id="royal-desk-nav" className={mobileNavOpen ? 'is-open' : ''}>
             <div className="sidebar-caption">The royal desk</div>
             <button className="nav-item is-active" onClick={() => setMobileNavOpen(false)} data-testid="button-nav-campaign"><Castle size={15} /> Campaign map</button>
-            <button className="nav-item" onClick={() => setGuideOpen(true)} data-testid="button-nav-guide"><BookOpen size={15} /> Field guide <ChevronRight size={12} style={{ marginLeft: 'auto' }} /></button>
+            <button className="nav-item" onClick={() => setGuideOpen(true)} data-testid="button-nav-guide"><BookOpen size={15} /> Field guide <ChevronRight className="nav-chevron" size={12} /></button>
           </nav>
           <div className="sidebar-footer">
             <div className="campaign-id">CURRENT CHRONICLE<br /><span className="mono">{campaign.nation.toUpperCase()}</span></div>
@@ -792,10 +792,10 @@ function App() {
 
           <ResourceStrip
             items={[
-              { label: 'Treasury', value: campaign.gold, unit: 'gold', icon: Coins },
-              { label: 'Granary', value: campaign.food, unit: 'food', icon: Wheat },
-              { label: 'Royal forces', value: campaign.forces, unit: 'soldiers', icon: Swords },
-              { label: 'Held territory', value: playerRegions.length, unit: 'regions', icon: Flag },
+              { label: 'Treasury', value: campaign.gold, unit: 'gold', icon: Coins, testId: 'value-gold' },
+              { label: 'Granary', value: campaign.food, unit: 'food', icon: Wheat, testId: 'value-food' },
+              { label: 'Royal forces', value: campaign.forces, unit: 'soldiers', icon: Swords, testId: 'value-forces' },
+              { label: 'Held territory', value: playerRegions.length, unit: 'regions', icon: Flag, testId: 'value-territory' },
             ]}
           />
 

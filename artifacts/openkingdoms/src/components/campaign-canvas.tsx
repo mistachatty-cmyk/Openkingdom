@@ -100,6 +100,7 @@ const MAP_UI_SAFE_ZONES: LabelBox[] = [
   { x: 0, y: 0, width: 110, height: 92 },
   { x: 608, y: 0, width: 152, height: 108 },
   { x: 0, y: 308, width: 240, height: 82 },
+  { x: 600, y: 308, width: 160, height: 82 },
 ];
 
 function rectanglesOverlap(first: LabelBox, second: LabelBox) {
@@ -332,6 +333,7 @@ export function CampaignCanvas({
       context.bezierCurveTo(224, 142, 240, 108, 278, 122);
       context.bezierCurveTo(350, 165, 355, 221, 355, 221);
       context.stroke();
+      context.globalAlpha = 1;
 
       const occupiedLabels: LabelBox[] = [];
       regions.forEach((region) => {

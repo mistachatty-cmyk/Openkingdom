@@ -5,6 +5,7 @@ export type ResourceItem = {
   value: number;
   unit: string;
   icon: LucideIcon;
+  testId?: string;
 };
 
 export type RegionIndexItem = {
@@ -18,12 +19,12 @@ export type RegionIndexItem = {
 export function ResourceStrip({ items }: { items: ResourceItem[] }) {
   return (
     <section className="resource-strip" aria-label="Realm resources">
-      {items.map(({ label, value, unit, icon: Icon }) => (
+      {items.map(({ label, value, unit, icon: Icon, testId }) => (
         <div className="resource-card" key={label}>
           <div className="resource-label">{label}</div>
           <div className="resource-value">
             <Icon className="resource-icon" size={15} aria-hidden="true" />
-            <strong>{value}</strong>
+            <strong data-testid={testId}>{value}</strong>
             <span>{unit}</span>
           </div>
         </div>
