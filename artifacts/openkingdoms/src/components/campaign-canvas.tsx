@@ -29,6 +29,8 @@ export type CanvasFront = {
   source: [number, number];
   target: [number, number];
   committedForces: number;
+  status: 'staged' | 'marching' | 'arrived' | 'resolved';
+  travelTurns: number;
 };
 
 export type CanvasRoute = {
@@ -663,10 +665,11 @@ export function CampaignCanvas({
         if (!isPointVisible(marker)) return;
         const isSelected = front.id === selectedFrontId;
         context.save();
-        context.strokeStyle = isSelected ? palette.selection : palette.road;
+        const frontColor = front.status === 'arrived' ? palette.selection : front.status === 'marching' ? palette.neutral : palette.road;
+        context.strokeStyle = isSelected ? palette.selection : frontColor;
         context.fillStyle = isSelected ? palette.selection : palette.road;
         context.lineWidth = isSelected ? 3 : 2;
-        context.setLineDash([4, 4]);
+        context.setLineDash(front.status === 'arrived' ? [] : [4, 4]);
         context.beginPath();
         context.moveTo(front.source[0], front.source[1]);
         context.lineTo(front.target[0], front.target[1]);
@@ -679,11 +682,18 @@ export function CampaignCanvas({
         context.font = '700 8px "DM Mono", monospace';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
-        context.fillText(String(front.committedForces), marker[0], marker[1]);
+        context.fillText(
+          front.status === 'arrived' ? String(front.committedForces) : `${front.committedForces} · ${front.travelTurns}t`,
+          marker[0],
+          marker[1],
+        );
         if (detailTier !== 'overview') {
           context.fillStyle = palette.ink;
           context.font = '700 10px Georgia, serif';
           context.fillText(front.name.slice(0, 22), marker[0], marker[1] - 17);
+          context.fillStyle = front.status === 'arrived' ? palette.selection : palette.mutedInk;
+          context.font = '700 8px "DM Mono", monospace';
+          context.fillText(front.status.toUpperCase(), marker[0], marker[1] + 17);
         }
         context.restore();
       });

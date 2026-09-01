@@ -89,6 +89,7 @@ type Region = {
   path: string;
   label: [number, number];
 };
+type FrontStatus = 'staged' | 'marching' | 'arrived' | 'resolved';
 type Front = {
   id: string;
   name: string;
@@ -96,7 +97,7 @@ type Front = {
   targetRegionId: string;
   committedForces: number;
   travelTurns: number;
-  status: 'staged';
+  status: FrontStatus;
 };
 type Treaty = {
   id: string;
@@ -590,6 +591,15 @@ function hasFoundedKingdom(regions: Region[]) {
   return regions.filter((region) => region.kind === 'player').length >= KINGDOM_GOAL;
 }
 
+function isFrontStatus(value: unknown): value is FrontStatus {
+  return value === 'staged' || value === 'marching' || value === 'arrived' || value === 'resolved';
+}
+
+function frontTravelDuration(source: Region, target: Region) {
+  const distance = Math.hypot(source.label[0] - target.label[0], source.label[1] - target.label[1]);
+  return Math.max(1, Math.min(3, Math.ceil(distance / 150)));
+}
+
 function routeCondition(campaign: Campaign, route: TradeRoute) {
   const partner = regionById(campaign.regions, route.partnerRegionId);
   const relationship = campaign.relationships[route.partnerRegionId] ?? 'neutral';
@@ -738,17 +748,20 @@ function readCampaign(): Campaign | null {
       ) {
         return [];
       }
+      const savedStatus = isFrontStatus(front.status) ? front.status : 'staged';
+      const status = savedStatus === 'resolved' ? 'arrived' : savedStatus;
+      const savedTravelTurns =
+        typeof front.travelTurns === 'number' && Number.isFinite(front.travelTurns)
+          ? Math.min(3, Math.max(0, Math.floor(front.travelTurns)))
+          : frontTravelDuration(source, target);
       return [{
         id: front.id.slice(0, 80),
         name: front.name.slice(0, 48) || `${target.name} Front`,
         sourceRegionId: source.id,
         targetRegionId: target.id,
         committedForces,
-        travelTurns:
-          typeof front.travelTurns === 'number' && front.travelTurns > 0
-            ? Math.min(3, Math.floor(front.travelTurns))
-            : 1,
-        status: 'staged',
+        travelTurns: status === 'arrived' ? 0 : savedTravelTurns || 1,
+        status,
       }];
     });
     const defaultResources = { grain: typeof saved.food === 'number' && saved.food >= 0 ? Math.floor(saved.food) : 120, timber: 24, iron: 12, salt: 10 };
@@ -852,7 +865,8 @@ function readCampaign(): Campaign | null {
         ? saved.log.filter((entry): entry is string => typeof entry === 'string').slice(0, 4)
         : ['The first standard was raised at Aurelian Reach.'],
     };
-  } catch {
+  } catch (error) {
+    console.error('Could not restore campaign save', error);
     return null;
   }
 }
@@ -1130,6 +1144,7 @@ function App() {
         projectedDefendingForces,
         allySupport,
         supply: source.kind === 'player' && source.adjacent.includes(target.id) ? 'Supplied' : 'Broken supply',
+         status: front.status,
         travelTurns: front.travelTurns,
         outcome,
       }];
@@ -1151,6 +1166,8 @@ function App() {
       source: source.label,
       target: target.label,
       committedForces: front.committedForces,
+       status: front.status,
+       travelTurns: front.travelTurns,
     }];
   });
   const canvasRoutes = useMemo<CanvasRoute[]>(() => {
@@ -1463,6 +1480,7 @@ function App() {
       Math.min(source.forces, Math.floor(Number.isFinite(frontDraftAllocation) ? frontDraftAllocation : 0)),
     );
     const name = frontDraftName.trim().slice(0, 48) || `${selectedTarget.name} Front`;
+    const travelTurns = frontTravelDuration(source, selectedTarget);
     updateCampaign((current) => ({
       ...current,
       regions: current.regions.map((region) =>
@@ -1478,7 +1496,7 @@ function App() {
           sourceRegionId: source.id,
           targetRegionId: selectedTarget.id,
           committedForces,
-          travelTurns: 1,
+            travelTurns,
           status: 'staged',
         },
       ],
@@ -1487,7 +1505,7 @@ function App() {
     setActiveFrontId(id);
     announce(
       committedForces
-        ? `${name} established. ${committedForces} soldiers are ready at the border.`
+        ? `${name} established. ${committedForces} soldiers are staged; arrival in ${travelTurns} turn${travelTurns === 1 ? '' : 's'}.`
         : `${name} established. Stage soldiers when the army is ready.`,
       false,
       'build',
@@ -1528,6 +1546,8 @@ function App() {
     updateCampaign((current) => {
       const front = current.fronts.find((candidate) => candidate.id === frontId);
       if (!front || front.committedForces <= 0) return current;
+      const source = regionById(current.regions, front.sourceRegionId);
+      const target = regionById(current.regions, front.targetRegionId);
       return {
         ...current,
         regions: current.regions.map((region) =>
@@ -1536,12 +1556,21 @@ function App() {
             : region,
         ),
         fronts: current.fronts.map((candidate) =>
-          candidate.id === frontId ? { ...candidate, committedForces: 0 } : candidate,
+           candidate.id === frontId
+             ? {
+               ...candidate,
+               committedForces: 0,
+               status: 'staged',
+               travelTurns: source && target
+                 ? frontTravelDuration(source, target)
+                 : Math.max(1, candidate.travelTurns),
+             }
+             : candidate,
         ),
         log: [`Forces recalled from ${front.name}.`, ...current.log].slice(0, 4),
       };
     });
-    announce('The staged forces have returned to their source region.', false, 'general');
+    announce('The staged forces have returned to their source region and the order is back in staging.', false, 'general');
   };
 
   const cancelFront = (frontId: string) => {
@@ -1773,6 +1802,14 @@ function App() {
     if (!campaign || !front || !front.committedForces) {
       return announce('Stage soldiers at a front before committing an attack.', true);
     }
+    if (front.status !== 'arrived') {
+      return announce(
+        front.status === 'staged'
+          ? `The ${front.name} order is staged. Advance the turn to begin its march.`
+          : `The ${front.name} army is marching. It needs ${front.travelTurns} more turn${front.travelTurns === 1 ? '' : 's'} before it can attack.`,
+        true,
+      );
+    }
     const source = regionById(campaign.regions, front.sourceRegionId);
     const target = regionById(campaign.regions, front.targetRegionId);
     if (!source || !target || source.kind !== 'player' || target.kind === 'player') {
@@ -1887,6 +1924,48 @@ function App() {
         };
       })
       : campaign.tradeRoutes;
+    let nextRegions = campaign.regions;
+    const frontNotices: string[] = [];
+    const nextFronts = campaign.fronts.flatMap((front) => {
+      const source = regionById(campaign.regions, front.sourceRegionId);
+      const target = regionById(campaign.regions, front.targetRegionId);
+      const returnCommittedForces = () => {
+        if (!source || source.kind !== 'player' || front.committedForces <= 0) return;
+        nextRegions = nextRegions.map((region) =>
+          region.id === source.id
+            ? { ...region, forces: region.forces + front.committedForces }
+            : region,
+        );
+      };
+      if (
+        !source ||
+        !target ||
+        source.kind !== 'player' ||
+        target.kind === 'player' ||
+        !source.adjacent.includes(target.id) ||
+        !target.adjacent.includes(source.id)
+      ) {
+        returnCommittedForces();
+        frontNotices.push(
+          `${front.name} was resolved without combat because its border is no longer valid; committed soldiers returned where possible.`,
+        );
+        return [];
+      }
+      if (front.committedForces <= 0) {
+        frontNotices.push(`${front.name} was resolved without combat because no soldiers remained committed.`);
+        return [];
+      }
+      if (front.status === 'arrived') return [front];
+
+      const travelTurns = Math.max(0, front.travelTurns - 1);
+      const status: FrontStatus = travelTurns === 0 ? 'arrived' : 'marching';
+      frontNotices.push(
+        status === 'arrived'
+          ? `${front.name} arrived at ${target.name}; the attack order is now available.`
+          : `${front.name} is marching toward ${target.name}; ${travelTurns} turn${travelTurns === 1 ? '' : 's'} remain.`,
+      );
+      return [{ ...front, travelTurns, status }];
+    });
     const nextShortages = RESOURCE_TYPES.filter((resource) => nextResources[resource] < currentEconomy.consumption[resource]);
     const expiredTreaties = diplomacyEnabled ? campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration <= nextTurn).length : 0;
     const income = campaign.regions.filter((region) => region.kind === 'player').length * 24;
@@ -1901,6 +1980,8 @@ function App() {
       food: nextFood,
       resources: nextResources,
       tradeRoutes: nextRoutes,
+      regions: nextRegions,
+      fronts: nextFronts,
       treaties: diplomacyEnabled
         ? current.treaties.filter((treaty) => treaty.startedTurn + treaty.duration > nextTurn)
         : current.treaties,
@@ -1916,12 +1997,13 @@ function App() {
         }
         : current.diplomacy,
       log: [
+        ...frontNotices,
         `Turn ${nextTurn}: +${goldDelta} gold${commerceEnabled ? `, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}` : ', baseline stores steady'}.`,
         ...current.log,
       ].slice(0, 4),
     }));
     announce(
-      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties ? `; ${expiredTreaties} treaty${expiredTreaties === 1 ? '' : 's'} expired` : ''}.`,
+      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties ? `; ${expiredTreaties} treaty${expiredTreaties === 1 ? '' : 's'} expired` : ''}${frontNotices.length ? ` ${frontNotices.slice(0, 2).join(' ')}` : ''}`,
       false,
       'harvest',
     );

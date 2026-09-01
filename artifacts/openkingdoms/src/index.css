@@ -1170,9 +1170,28 @@ html.reduce-motion .feedback-aura { display: none; }
   font-style: normal;
 }
 .front-index-button em {
+  align-items: center;
+  display: flex;
   flex: 0 0 auto;
   color: var(--edition-primary);
+  gap: 3px;
+  white-space: nowrap;
 }
+.front-status { font-weight: 700; }
+.front-status-staged { color: var(--edition-muted); }
+.front-status-marching { color: var(--edition-accent); }
+.front-status-arrived { color: var(--edition-player); }
+.front-timing {
+  border-left: 2px solid var(--edition-accent);
+  color: var(--edition-muted);
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+  line-height: 1.45;
+  margin: 12px 0 0;
+  padding-left: 9px;
+}
+.front-timing-arrived { border-color: var(--edition-player); color: var(--edition-player); }
+.front-timing-staged { border-color: var(--edition-border); }
 .front-index-empty,
 .front-unavailable {
   color: var(--edition-muted);

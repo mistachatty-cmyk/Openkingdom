@@ -19,9 +19,21 @@ export type FrontSummary = {
   projectedDefendingForces: number;
   allySupport: number;
   supply: 'Supplied' | 'Broken supply';
+  status: 'staged' | 'marching' | 'arrived' | 'resolved';
   travelTurns: number;
   outcome: 'No forces staged' | 'Strong advantage' | 'Uncertain' | 'Outmatched';
 };
+
+function frontStatusLabel(status: FrontSummary['status']) {
+  return status === 'staged' ? 'Staged' : status === 'marching' ? 'Marching' : status === 'arrived' ? 'Arrived' : 'Resolved';
+}
+
+function frontTimingLabel(status: FrontSummary['status'], travelTurns: number) {
+  if (status === 'arrived') return 'Army arrived · attack may be ordered';
+  if (status === 'marching') return `${travelTurns} turn${travelTurns === 1 ? '' : 's'} until arrival`;
+  if (status === 'staged') return `Staged · ${travelTurns} turn${travelTurns === 1 ? '' : 's'} until arrival`;
+  return 'Order resolved';
+}
 
 export function FrontIndex({
   fronts,
@@ -56,7 +68,7 @@ export function FrontIndex({
                 <strong>{front.name}</strong>
                 <small>{front.sourceName} → {front.targetName}</small>
               </span>
-              <em>{front.committedForces} staged</em>
+               <em><strong className={`front-status front-status-${front.status}`}>{frontStatusLabel(front.status)}</strong> · {front.committedForces} soldiers · {front.status === 'arrived' ? 'ready' : `${front.travelTurns} turn${front.travelTurns === 1 ? '' : 's'}`}</em>
             </button>
           ))}
         </div>
@@ -200,9 +212,9 @@ export function FrontDossier({
           <div className="panel-kicker">Selected order</div>
           <h3 id="front-dossier-title">{front.name}</h3>
         </div>
-        <span className={`front-outcome-badge front-outcome-${front.outcome.toLowerCase().replaceAll(' ', '-')}`}>
-          {front.outcome}
-        </span>
+         <span className={`front-outcome-badge front-outcome-${front.outcome.toLowerCase().replaceAll(' ', '-')}`}>
+           {frontStatusLabel(front.status)} · {front.outcome}
+         </span>
       </div>
       <p className="front-route">{front.sourceName} <ArrowRight size={13} aria-hidden="true" /> {front.targetName}</p>
       <dl className="front-metrics">
@@ -212,8 +224,10 @@ export function FrontDossier({
               <div><dt>Defender strength</dt><dd>{front.targetForces}</dd></div>
               <div><dt>Ally support</dt><dd>{front.allySupport ? `+${front.allySupport}` : 'None'}</dd></div>
         <div><dt>Supply status</dt><dd>{front.supply}</dd></div>
-        <div><dt>Travel time</dt><dd>{front.travelTurns} turn</dd></div>
+         <div><dt>Order status</dt><dd>{frontStatusLabel(front.status)}</dd></div>
+         <div><dt>Travel time</dt><dd>{front.status === 'arrived' ? 'Arrived' : `${front.travelTurns} turn${front.travelTurns === 1 ? '' : 's'} remaining`}</dd></div>
       </dl>
+       <p className={`front-timing front-timing-${front.status}`} role="status">{frontTimingLabel(front.status, front.travelTurns)}</p>
       <div className="front-allocation">
         <div className="front-allocation-heading">
           <label htmlFor={`front-forces-${front.id}`}>Projected attack strength</label>
@@ -260,7 +274,7 @@ export function FrontDossier({
         <button type="button" className="button-quiet" onClick={onCancel} disabled={readOnly} data-testid={`button-cancel-front-${front.id}`}>
           <X size={13} aria-hidden="true" /> Cancel front
         </button>
-        <button type="button" className="button-primary" onClick={onAttack} disabled={readOnly || !front.committedForces} data-testid="button-attack-front">
+         <button type="button" className="button-primary" onClick={onAttack} disabled={readOnly || front.status !== 'arrived' || !front.committedForces} data-testid="button-attack-front">
           <Swords size={13} aria-hidden="true" /> Attack
         </button>
       </div>
