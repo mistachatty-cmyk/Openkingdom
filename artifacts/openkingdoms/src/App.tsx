@@ -742,6 +742,101 @@ function treatyInfluenceCost(kind: TreatyKind) {
   return kind === 'trade' ? 4 : kind === 'non-aggression' ? 6 : kind === 'defensive-alliance' ? 12 : kind === 'military-aid' ? 8 : 4;
 }
 
+type DiplomaticMove = 'envoy' | TreatyKind;
+type DiplomaticResponse = {
+  accepted: boolean;
+  message: string;
+};
+
+function courtTemperament(regionId: string) {
+  return [...regionId].reduce((total, character, index) => total + character.charCodeAt(0) * (index + 1), 0) % 3;
+}
+
+function resolveDiplomaticResponse(campaign: Campaign, partnerId: string, move: DiplomaticMove): DiplomaticResponse {
+  const partner = regionById(campaign.regions, partnerId);
+  if (!partner) return { accepted: false, message: 'The intended court could not be found, so no reply was returned.' };
+
+  const relationship = campaign.relationships[partnerId] ?? 'neutral';
+  const activeTreaties = campaign.treaties.filter((treaty) =>
+    treaty.partnerRegionId === partnerId &&
+    treaty.startedTurn + treaty.duration > campaign.turn,
+  );
+  const activeTreaty = move !== 'envoy'
+    ? activeTreaties.find((treaty) => treaty.kind === move)
+    : undefined;
+  const embargoed = campaign.embargoes.includes(partnerId);
+
+  if (move === 'envoy') {
+    if (embargoed) {
+      return {
+        accepted: false,
+        message: `${partner.name} refused the envoy; the embargo has closed its court to your seal.`,
+      };
+    }
+    const protectedTreaty = activeTreaties.find((treaty) =>
+      treaty.kind === 'non-aggression' || treaty.kind === 'defensive-alliance' || treaty.kind === 'peace',
+    );
+    const accepted = relationship !== 'war' || Boolean(protectedTreaty) || campaign.diplomacy.posture === 'conciliatory';
+    return accepted
+      ? {
+          accepted: true,
+          message: protectedTreaty
+            ? `${partner.name} accepted the envoy and reaffirmed its ${treatyLabel(protectedTreaty.kind).toLowerCase()}.`
+            : `${partner.name} accepted the envoy and offered a warmer diplomatic channel.`,
+        }
+      : {
+          accepted: false,
+          message: `${partner.name} refused the envoy; its court will not soften while the border remains at war.`,
+        };
+  }
+
+  if (activeTreaty) {
+    return {
+      accepted: false,
+      message: `${partner.name} refused the proposal; its ${treatyLabel(activeTreaty.kind).toLowerCase()} is already active.`,
+    };
+  }
+  if (move === 'trade' && embargoed) {
+    return {
+      accepted: false,
+      message: `${partner.name} refused the trade agreement; the active embargo still bars the road.`,
+    };
+  }
+  if (relationship === 'war' && move !== 'peace') {
+    return {
+      accepted: false,
+      message: `${partner.name} refused the ${treatyLabel(move).toLowerCase()}; war has closed every other form of accord.`,
+    };
+  }
+
+  const relationshipTrust =
+    relationship === 'allied' ? 4 :
+      relationship === 'trading' ? 3 :
+        relationship === 'friendly' ? 2 :
+          relationship === 'hostile' ? -1 :
+            relationship === 'war' ? -2 : 0;
+  const reputationTrust = campaign.reputation >= 50 ? 2 : campaign.reputation >= 30 ? 1 : 0;
+  const postureTrust = campaign.diplomacy.posture === 'conciliatory' ? 1 : campaign.diplomacy.posture === 'assertive' ? -1 : 0;
+  const tradeTrust = activeTreaties.some((treaty) => treaty.kind === 'trade') ? 1 : 0;
+  const trust = relationshipTrust + reputationTrust + postureTrust + tradeTrust - courtTemperament(partnerId);
+  const requiredTrust =
+    move === 'trade' ? 1 :
+      move === 'non-aggression' ? 2 :
+        move === 'defensive-alliance' ? 3 :
+          move === 'military-aid' ? 2 : 0;
+  const accepted = trust >= requiredTrust;
+
+  return accepted
+    ? {
+        accepted: true,
+        message: `${partner.name} accepted your ${treatyLabel(move).toLowerCase()} proposal and sealed the terms.`,
+      }
+    : {
+        accepted: false,
+        message: `${partner.name} refused your ${treatyLabel(move).toLowerCase()} proposal; its court wants stronger assurances.`,
+      };
+}
+
 function postureLabel(posture: DiplomaticPosture) {
   return posture === 'conciliatory' ? 'Conciliatory' : posture === 'assertive' ? 'Assertive' : 'Balanced';
 }
@@ -1711,19 +1806,22 @@ function App() {
     const influenceCost = campaign.diplomacy.posture === 'assertive' ? 8 : 5;
     if (campaign.gold < 20) return announce('The treasury cannot fund another envoy yet.', true);
     if (campaign.diplomacy.influence < influenceCost) return announce(`The court needs ${influenceCost} influence to send this envoy.`, true);
+    const response = resolveDiplomaticResponse(campaign, selectedPartnerId, 'envoy');
     updateCampaign((current) => ({
       ...current,
       gold: current.gold - 20,
-      reputation: Math.min(100, current.reputation + 2),
+      reputation: response.accepted ? Math.min(100, current.reputation + 2) : current.reputation,
       diplomacy: {
         ...current.diplomacy,
         influence: Math.max(0, current.diplomacy.influence - influenceCost + (current.diplomacy.posture === 'conciliatory' ? 4 : 0)),
         envoyCooldowns: { ...current.diplomacy.envoyCooldowns, [selectedPartnerId]: 3 },
       },
-      relationships: { ...current.relationships, [selectedPartnerId]: 'friendly' },
-      log: [`An envoy opened a friendly channel with ${regionById(current.regions, selectedPartnerId)?.name ?? 'a neighboring court'}.`, ...current.log].slice(0, 4),
+      relationships: response.accepted
+        ? { ...current.relationships, [selectedPartnerId]: 'friendly' }
+        : current.relationships,
+      log: [response.message, ...current.log].slice(0, 4),
     }));
-    announce('The envoy returned with a warmer seal. Friendly relations established.', false, 'general');
+    announce(response.message, !response.accepted, response.accepted ? 'general' : 'error');
   };
 
   const proposeTreaty = (kind: TreatyKind) => {
@@ -1740,7 +1838,16 @@ function App() {
     if (!offer.enabled) return announce(offer.reason, true);
     const influenceCost = treatyInfluenceCost(kind);
     if (campaign.diplomacy.influence < influenceCost) return announce(`The court needs ${influenceCost} influence to make this proposal.`, true);
-    const partnerName = regionById(campaign.regions, selectedPartnerId)?.name ?? 'the neighboring court';
+    const response = resolveDiplomaticResponse(campaign, selectedPartnerId, kind);
+    if (!response.accepted) {
+      updateCampaign((current) => ({
+        ...current,
+        diplomacy: { ...current.diplomacy, influence: Math.max(0, current.diplomacy.influence - influenceCost) },
+        log: [response.message, ...current.log].slice(0, 4),
+      }));
+      announce(response.message, true, 'error');
+      return;
+    }
     updateCampaign((current) => ({
       ...current,
       diplomacy: { ...current.diplomacy, influence: Math.max(0, current.diplomacy.influence - influenceCost) },
@@ -1759,9 +1866,9 @@ function App() {
         },
       ],
       militaryAid: kind === 'military-aid' ? current.militaryAid + 12 : current.militaryAid,
-      log: [`${treatyLabel(kind)} signed with ${partnerName}.`, ...current.log].slice(0, 4),
+      log: [response.message, ...current.log].slice(0, 4),
     }));
-    announce(`${treatyLabel(kind)} accepted by ${partnerName}.`, false, kind === 'defensive-alliance' ? 'victory' : 'general');
+    announce(response.message, false, kind === 'defensive-alliance' ? 'victory' : 'general');
   };
 
   const toggleEmbargo = () => {

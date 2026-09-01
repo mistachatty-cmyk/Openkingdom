@@ -126,7 +126,7 @@ export function AccessibleRegionIndex({
 
 export function DispatchList({ entries }: { entries: string[] }) {
   return (
-    <section className="panel dispatch-panel">
+    <section className="panel dispatch-panel" aria-label="Chronicle and court responses" aria-live="polite">
       <div className="panel-kicker">Recent dispatches</div>
       <div className="dispatch-list">
         {entries.map((entry, index) => (
