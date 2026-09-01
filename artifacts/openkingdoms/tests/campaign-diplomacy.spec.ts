@@ -368,6 +368,10 @@ for (const scenario of TREATY_SCENARIOS) {
     await expect(page.getByTestId(`treaty-${scenario.kind}`)).toHaveCount(0);
     await expect(page.getByTestId(scenario.buttonTestId)).toBeEnabled();
 
+    const expiryNotice = `${scenario.label} with Bracken March expired on turn 2.`;
+    await expectPersistedReply(page, expiryNotice);
+    await page.reload();
+    await expectPersistedReply(page, expiryNotice);
   });
 }
 

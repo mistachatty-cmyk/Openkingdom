@@ -2192,7 +2192,13 @@ function App() {
       return [{ ...front, travelTurns, status }];
     });
     const nextShortages = RESOURCE_TYPES.filter((resource) => nextResources[resource] < currentEconomy.consumption[resource]);
-    const expiredTreaties = diplomacyEnabled ? campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration <= nextTurn).length : 0;
+    const expiredTreaties = diplomacyEnabled
+      ? campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration <= nextTurn)
+      : [];
+    const treatyExpiryNotices = expiredTreaties.map((treaty) => {
+      const partnerName = regionById(campaign.regions, treaty.partnerRegionId)?.name ?? 'the neighboring court';
+      return `${treatyLabel(treaty.kind)} with ${partnerName} expired on turn ${nextTurn}.`;
+    });
     const nextTreaties = diplomacyEnabled
       ? campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration > nextTurn)
       : campaign.treaties;
@@ -2237,13 +2243,14 @@ function App() {
         }
         : current.diplomacy,
       log: [
+        ...treatyExpiryNotices,
         ...turnNotices,
         `Turn ${nextTurn}: +${goldDelta} gold${commerceEnabled ? `, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}` : ', baseline stores steady'}.`,
         ...current.log,
       ].slice(0, 4),
     }));
     announce(
-      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties ? `; ${expiredTreaties} treaty${expiredTreaties === 1 ? '' : 's'} expired` : ''}${turnNotices.length ? ` ${turnNotices.slice(0, 2).join(' ')}` : ''}`,
+      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties.length ? `; ${expiredTreaties.length} treaty${expiredTreaties.length === 1 ? '' : 's'} expired` : ''}${turnNotices.length ? ` ${turnNotices.slice(0, 2).join(' ')}` : ''}`,
       false,
       'harvest',
     );
