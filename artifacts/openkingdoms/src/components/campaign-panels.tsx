@@ -74,10 +74,10 @@ export function AccessibleRegionIndex({
     <section className="accessible-map-index" aria-labelledby="accessible-map-title">
       <div className="accessible-index-heading">
         <div>
-          <div className="panel-kicker">Keyboard map</div>
-          <h3 id="accessible-map-title">Accessible region index</h3>
+          <div className="panel-kicker">Chart index</div>
+          <h3 id="accessible-map-title">Find a province</h3>
         </div>
-        <span className="mono">{filteredRegions.length} of {regions.length} regions</span>
+        <span className="mono">{filteredRegions.length} of {regions.length} provinces</span>
       </div>
       <label className="accessible-index-search">
         <span className="sr-only">Search regions by name</span>
@@ -85,15 +85,15 @@ export function AccessibleRegionIndex({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search the world by region name"
-          aria-label="Search regions by name"
+          placeholder="Search the chart by province"
+          aria-label="Search provinces by name"
           data-testid="input-region-search"
         />
       </label>
       <div className="accessible-region-groups">
         {visibleGroups.map(([chunkId, group]) => (
           <div className="accessible-region-group" key={chunkId}>
-            <h4>{chunkId.replace('chunk-', 'Atlas sector ')}</h4>
+            <h4>{chunkId.replace('chunk-', 'Chart sector ')}</h4>
             <div className="accessible-region-grid">
               {group.map((region) => (
                 <button
@@ -114,10 +114,10 @@ export function AccessibleRegionIndex({
           </div>
         ))}
       </div>
-      {!filteredRegions.length && <p className="accessible-index-empty">No regions match that search.</p>}
+      {!filteredRegions.length && <p className="accessible-index-empty">No provinces match that search.</p>}
       {filteredRegions.length > visibleRegionCount && (
         <button type="button" className="button-quiet accessible-index-more" onClick={() => setShowAll((current) => !current)}>
-          {showAll ? 'Show nearby sectors only' : `Show all ${filteredRegions.length} regions`}
+           {showAll ? 'Show nearby sectors only' : `Show all ${filteredRegions.length} provinces`}
         </button>
       )}
     </section>

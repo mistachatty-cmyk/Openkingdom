@@ -1748,7 +1748,7 @@ function App() {
             <div className="eyebrow">A single-player campaign · Canvas edition</div>
             <h1 className="start-title">Open<br /><em>Kingdoms</em></h1>
             <p className="start-subtitle">
-              Every border begins as a line of ink. Name your nation, raise its standard, and decide what the map remembers.
+              Every border begins as a line of ink. Name your nation, raise its standard, and draw a future across the continent.
             </p>
           </section>
           <section className="start-form start-form-delay ink-rise">
@@ -1797,12 +1797,12 @@ function App() {
         <aside className="sidebar">
           <div className="brand-mark">
             <div className="brand-seal"><Crown size={18} /></div>
-            <div className="brand-name">OpenKingdoms<small>canvas edition · living chronicle</small></div>
+             <div className="brand-name">OpenKingdoms<small>canvas edition · continental chronicle</small></div>
           </div>
           <button className="mobile-menu button-quiet" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label="Toggle royal desk menu" aria-expanded={mobileNavOpen} aria-controls="royal-desk-nav" data-testid="button-toggle-menu"><Menu size={16} /></button>
           <nav id="royal-desk-nav" className={mobileNavOpen ? 'is-open' : ''}>
             <div className="sidebar-caption">The royal desk</div>
-            <button className="nav-item is-active" onClick={() => setMobileNavOpen(false)} data-testid="button-nav-campaign"><Castle size={15} /> Campaign map</button>
+             <button className="nav-item is-active" onClick={() => setMobileNavOpen(false)} data-testid="button-nav-campaign"><Castle size={15} /> Continental chart</button>
             <button className="nav-item" onClick={() => setGuideOpen(true)} data-testid="button-nav-guide"><BookOpen size={15} /> Field guide <ChevronRight className="nav-chevron" size={12} /></button>
           </nav>
           <div className="sidebar-footer">
@@ -1814,7 +1814,7 @@ function App() {
         <section className="main-area">
           <header className="topbar">
             <div>
-              <div className="page-kicker">Canvas edition · Year of the first crown · Chronicle {String(campaign.turn).padStart(2, '0')}</div>
+               <div className="page-kicker">Canvas edition · Continental chronicle · Turn {String(campaign.turn).padStart(2, '0')}</div>
               <h1 className="page-title">{campaign.nation}</h1>
             </div>
             <div className="turn-control">
@@ -1856,8 +1856,8 @@ function App() {
           <div className="content-grid">
             <section className="map-panel map-in">
               <div className="map-head">
-                 <div><div className="panel-kicker">The world atlas</div><h2>Borderlands &amp; banners</h2></div>
-                <div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival</span></div>
+                 <div className="map-head-copy"><div className="panel-kicker">The continental chart</div><h2>Land, road &amp; crown</h2><p>Read the shape of the realm first. Then choose the border, bargain, or levy that changes it.</p></div>
+                <div className="map-head-side"><span className="map-view-tag">Illustrated campaign chart</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Road</span><span className="legend-item"><i className="legend-dot front" /> Front</span></div></div>
               </div>
               <div className="map-canvas-wrap" id="map-help">
                 <CampaignCanvas
@@ -1885,7 +1885,7 @@ function App() {
                   }}
                 />
               </div>
-               <p className="map-note"><strong>Choose your decision.</strong> The atlas simplifies at a distance; zoom into a region for its settlement detail, or search the grouped index below.</p>
+                <p className="map-note"><strong>Choose your next move.</strong> At a glance, the chart shows the whole continent; zoom closer for settlements, routes, and marching orders.</p>
               <AccessibleRegionIndex
                 regions={campaign.regions}
                 selectedId={selectedId}
@@ -1920,7 +1920,7 @@ function App() {
                 {selected ? (
                   <>
                     <div className="selection-top">
-                      <div><div className="panel-kicker">Region dossier</div><h2 className="selection-name" data-testid={`text-selected-region-${selected.id}`}>{selected.name}</h2></div>
+                      <div><div className="panel-kicker">Province dossier</div><h2 className="selection-name" data-testid={`text-selected-region-${selected.id}`}>{selected.name}</h2></div>
                       <span className={`territory-badge ${selected.kind === 'player' ? 'player' : ''}`}>{selected.kind === 'player' ? 'Under your crown' : selected.kind === 'rival' ? 'Rival claim' : 'Unclaimed'}</span>
                     </div>
                     <p className="selection-description">{selected.description}</p>
@@ -1928,6 +1928,10 @@ function App() {
                       <div><span className="meta-label">Settlement</span><strong className="meta-value" data-testid={`value-settlement-${selected.id}`}>{selected.settlement}</strong></div>
                       <div><span className="meta-label">Local forces</span><strong className="meta-value" data-testid={`value-region-forces-${selected.id}`}>{selected.forces}</strong></div>
                       <div><span className="meta-label">Barracks</span><strong className="meta-value" data-testid={`value-barracks-${selected.id}`}>{selected.barracks ? 'Built' : 'None'}</strong></div>
+                    </div>
+                    <div className="selection-geography">
+                      <span><small>Terrain</small><strong>{selected.terrain ? selected.terrain : 'Open country'}</strong></span>
+                      <span><small>Landmark</small><strong>{selected.landmark ?? 'No landmark recorded'}</strong></span>
                     </div>
                     {selected.kind === 'player' ? (
                       <div className="action-stack">
@@ -1963,7 +1967,7 @@ function App() {
                       </>
                     )}
                   </>
-                ) : <div className="empty-selection"><Mountain size={26} /><h3>No region selected</h3><p>Choose a shape on the campaign map to read its dossier.</p></div>}
+                ) : <div className="empty-selection"><Mountain size={26} /><h3>No province selected</h3><p>Choose a shape on the chart to read its dossier and decide what happens next.</p></div>}
               </section>
               <TradePanel
                 partnerName={selectedTarget?.name ?? null}
@@ -1995,11 +1999,11 @@ function App() {
               />
 
               <section className="panel objective-panel">
-                <div className="panel-kicker">The first objective</div>
-                <h3>Make the map yours.</h3>
-                <p>Hold three regions to establish a true kingdom. Build an army, then decide which border to redraw.</p>
+                 <div className="panel-kicker">The first charter</div>
+                 <h3>Secure your first province.</h3>
+                 <p>Hold three provinces to establish a true kingdom. Build your strength, then decide which border to redraw.</p>
                 <div className="objective-progress"><span style={{ width: `${objectiveProgress}%` }} /></div>
-                <div className="mono objective-status" data-testid="status-objective">{playerRegions.length} of 3 regions held</div>
+                 <div className="mono objective-status" data-testid="status-objective">{playerRegions.length} of 3 provinces held</div>
               </section>
 
               <DispatchList entries={campaign.log} />
@@ -2012,9 +2016,9 @@ function App() {
         <div className="guide-overlay" onClick={(event) => { if (event.target === event.currentTarget) setGuideOpen(false); }}>
           <aside className="guide-drawer" role="dialog" aria-modal="true" aria-label="Field guide">
             <div className="guide-header"><div><div className="panel-kicker">A primer for sovereigns</div><h2>Field guide</h2></div><button ref={guideCloseRef} className="close-button" onClick={() => setGuideOpen(false)} aria-label="Close guide" data-testid="button-close-guide"><X size={20} /></button></div>
-            <div className="guide-section"><h3>Read the map</h3><p>Every region is a decision waiting to be made. Green lands answer to your crown; red lands are rivals; gold lands are still persuadable.</p></div>
+            <div className="guide-section"><h3>Read the chart</h3><p>This is one connected continent, drawn as a field chart. Green provinces answer to your crown; red provinces are rival claims; gold provinces are open to persuasion.</p></div>
              <div className="guide-section"><h3>Grow your realm</h3><ul className="guide-list"><li><Coins size={14} /> <span>Advance a turn to gather gold and the grain, timber, iron, and salt produced by every region you hold.</span></li><li><Hammer size={14} /> <span>Barracks cost 80 gold and make each recruitment call worth 16 soldiers instead of 10.</span></li><li><Landmark size={14} /> <span>Upgrade villages into towns and towns into cities. Each charter costs more than the last and improves local output.</span></li></ul></div>
-             <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival or neutral border to name a front, choose its source region, and stage an exact number of soldiers. Review the projected strength before committing the attack.</p></div>
+             <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival or unclaimed province to name a front, choose its source province, and stage an exact levy. Review the projected strength before committing the march.</p></div>
              <div className="guide-section"><h3>Trade &amp; diplomacy</h3><p>Send an envoy to make a neutral court friendly, sign a trade agreement, then charter a route for six turns of income. Routes have upkeep and can be disrupted by war, embargoes, blocked borders, or shortages.</p></div>
              <div className="guide-section"><h3>Keep your word</h3><p>Non-aggression pacts protect a border, alliances can send aid to a neighboring front, and peace terms reopen a war-torn crossing. Breaking a treaty costs reputation and makes that court hostile.</p></div>
             <div className="guide-section"><h3>Remember</h3><p>There is no perfect opening. The chronicle saves to this browser after every decision, so you may return whenever the map calls.</p></div>

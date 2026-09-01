@@ -282,7 +282,7 @@ export function CampaignCanvas({
   const [view, setView] = useState<MapView>(STARTING_VIEW);
   const [isDragging, setIsDragging] = useState(false);
   const [viewAnnouncement, setViewAnnouncement] = useState(
-    'World map view at 24 percent zoom. Drag to pan; use arrow keys to move.',
+    'Continental chart view at 24 percent zoom. Drag to pan; use arrow keys to move.',
   );
   const [performanceStats, setPerformanceStats] = useState({
     visible: regions.length,
@@ -292,6 +292,7 @@ export function CampaignCanvas({
     memory: 'unknown',
   });
   const pathCacheRef = useRef(new Map<string, Path2D>());
+  const coastlineCacheRef = useRef<{ source: string; path: Path2D } | null>(null);
   const lastDrawAtRef = useRef<number | null>(null);
   const statsFrameRef = useRef(0);
   const selectedRegion = regions.find((region) => region.id === selectedId);
@@ -374,7 +375,7 @@ export function CampaignCanvas({
 
   const resetView = () => {
     setView(STARTING_VIEW);
-    setViewAnnouncement('World map view reset to its starting position at 24 percent zoom.');
+    setViewAnnouncement('Continental chart reset to its starting position at 24 percent zoom.');
   };
 
   const panBy = (x: number, y: number) => {
@@ -446,7 +447,23 @@ export function CampaignCanvas({
       context.scale(view.scale, view.scale);
       context.translate(view.x, view.y);
 
-      const coastline = new Path2D(coastlinePath);
+       const coastline = coastlineCacheRef.current?.source === coastlinePath
+         ? coastlineCacheRef.current.path
+         : new Path2D(coastlinePath);
+       coastlineCacheRef.current = { source: coastlinePath, path: coastline };
+       context.save();
+       context.strokeStyle = palette.mutedInk;
+       context.lineWidth = 1;
+       context.globalAlpha = 0.14;
+       context.setLineDash([12, 18]);
+       for (let latitude = 330; latitude < WORLD_HEIGHT - 120; latitude += 155) {
+         context.beginPath();
+         context.moveTo(30, latitude);
+         context.bezierCurveTo(560, latitude - 34, 1040, latitude + 30, 1560, latitude - 12);
+         context.bezierCurveTo(1960, latitude - 38, 2300, latitude + 24, WORLD_WIDTH - 20, latitude - 6);
+         context.stroke();
+       }
+       context.restore();
       context.fillStyle = palette.land;
       context.strokeStyle = palette.road;
       context.lineWidth = detailTier === 'overview' ? 8 : 5;
@@ -492,7 +509,9 @@ export function CampaignCanvas({
         context.globalAlpha = route.status === 'active' ? 0.8 : 0.58;
         context.beginPath();
         context.moveTo(route.source[0], route.source[1]);
-        context.lineTo(route.target[0], route.target[1]);
+         const routeMidX = (route.source[0] + route.target[0]) / 2;
+         const routeMidY = (route.source[1] + route.target[1]) / 2 - Math.min(110, Math.hypot(route.target[0] - route.source[0], route.target[1] - route.source[1]) * 0.12);
+         context.quadraticCurveTo(routeMidX, routeMidY, route.target[0], route.target[1]);
         context.stroke();
         context.restore();
       });
@@ -832,7 +851,7 @@ export function CampaignCanvas({
 
   return (
     <div className="campaign-canvas-stage">
-      <canvas
+       <canvas
         ref={canvasRef}
         className={`map-canvas ${isDragging ? 'is-dragging' : ''}`}
         width={VIEW_WIDTH}
@@ -844,7 +863,7 @@ export function CampaignCanvas({
         onWheel={handleWheel}
         onKeyDown={handleKeyDown}
         tabIndex={0}
-        aria-label="Interactive campaign map with front markers. Use the accessible region and front indexes below to inspect and select orders."
+         aria-label="Interactive illustrated campaign chart with province, front, and trade markers. Use the indexes below to inspect and select orders."
         aria-describedby="map-navigation-help"
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown + - 0"
         data-testid="canvas-campaign-map"
@@ -897,7 +916,7 @@ export function CampaignCanvas({
         </button>
       </div>
       <p className="map-navigation-help" id="map-navigation-help">
-        Drag to pan · scroll or +/- to zoom · arrows to move · select a route or region
+         Drag across the chart · scroll or +/- to zoom · arrows to move · select a province, route, or front
       </p>
       <div className="map-performance" aria-label="Map performance">
         <span>World atlas · {regions.length} regions</span>
