@@ -123,10 +123,13 @@ type DiplomacyState = {
   influence: number;
   envoyCooldowns: Record<string, number>;
 };
+type CampaignStatus = 'active' | 'victory';
 type Campaign = {
   edition: 'Canvas';
   worldVersion: 2;
   featureVersion: 1;
+  status: CampaignStatus;
+  victoryTurn?: number;
   expansions: ExpansionSelection;
   nation: string;
   banner: Banner;
@@ -157,6 +160,8 @@ type ThemePreset = {
   description: string;
   canvas: CanvasPalette;
 };
+
+const KINGDOM_GOAL = 3;
 
 const banners: Banner[] = [
   { name: 'Ember', color: '#bb5141', secondary: '#e6bd58' },
@@ -581,6 +586,10 @@ function hasSharedBorder(regions: Region[], firstId: string, secondId: string) {
   return Boolean(first?.adjacent.includes(secondId) && second?.adjacent.includes(firstId));
 }
 
+function hasFoundedKingdom(regions: Region[]) {
+  return regions.filter((region) => region.kind === 'player').length >= KINGDOM_GOAL;
+}
+
 function routeCondition(campaign: Campaign, route: TradeRoute) {
   const partner = regionById(campaign.regions, route.partnerRegionId);
   const relationship = campaign.relationships[route.partnerRegionId] ?? 'neutral';
@@ -629,6 +638,7 @@ function makeNewCampaign(nation: string, banner: Banner, expansions: ExpansionSe
     edition: 'Canvas',
     worldVersion: 2,
     featureVersion: 1,
+    status: 'active',
     expansions: { ...expansions },
     nation: nation.trim() || 'The Unnamed Crown',
     banner,
@@ -799,11 +809,17 @@ function readCampaign(): Campaign | null {
         }];
       })
       : [];
+    const savedStatus: CampaignStatus = saved.status === 'victory' && hasFoundedKingdom(regions) ? 'victory' : 'active';
 
     return {
       edition: 'Canvas',
       worldVersion: 2,
       featureVersion: 1,
+      status: savedStatus,
+      victoryTurn:
+        savedStatus === 'victory' && typeof saved.victoryTurn === 'number'
+          ? Math.max(1, Math.floor(saved.victoryTurn))
+          : undefined,
       expansions,
       nation: saved.nation.slice(0, 28),
       banner:
@@ -1071,7 +1087,10 @@ function App() {
     [campaign, selectedId],
   );
   const playerRegions = campaign?.regions.filter((region) => region.kind === 'player') ?? [];
-  const objectiveProgress = Math.min(100, Math.round((playerRegions.length / 3) * 100));
+  const campaignComplete = campaign?.status === 'victory';
+  const objectiveProgress = hasFoundedKingdom(playerRegions)
+    ? 100
+    : Math.min(100, Math.round((playerRegions.length / KINGDOM_GOAL) * 100));
   const canvasRegions: CanvasRegion[] = campaign?.regions ?? [];
   const canvasPalette = themePresets[theme].canvas;
   const diplomacyEnabled = campaign ? isExpansionEnabled(campaign.expansions, 'diplomacy') : false;
@@ -1395,8 +1414,17 @@ function App() {
     setCampaign((current) => (current ? transform(current) : current));
   };
 
+  const guardCampaignActive = (current: Campaign | null): current is Campaign => {
+    if (!current) return false;
+    if (current.status === 'victory') {
+      announce('This chronicle is complete. Review the kingdom or begin a new chronicle when you are ready.', false, 'victory');
+      return false;
+    }
+    return true;
+  };
+
   const updateExpansionSelection = (selection: ExpansionSelection) => {
-    if (!campaign) return;
+    if (!guardCampaignActive(campaign)) return;
     const previous = campaign.expansions;
     updateCampaign((current) => ({ ...current, expansions: { ...selection } }));
     const changed = Object.keys(selection).filter((id) => previous[id as keyof ExpansionSelection] !== selection[id as keyof ExpansionSelection]);
@@ -1412,7 +1440,7 @@ function App() {
   };
 
   const updateDiplomaticPosture = (posture: DiplomaticPosture) => {
-    if (!campaign || !diplomacyEnabled || campaign.diplomacy.posture === posture) return;
+    if (!guardCampaignActive(campaign) || !diplomacyEnabled || campaign.diplomacy.posture === posture) return;
     updateCampaign((current) => ({
       ...current,
       diplomacy: { ...current.diplomacy, posture },
@@ -1421,7 +1449,7 @@ function App() {
     announce(`${postureLabel(posture)} posture adopted. ${postureDescription(posture)}`, false, 'general');
   };
   const createFront = () => {
-    if (!campaign || !selectedTarget) return;
+    if (!guardCampaignActive(campaign) || !selectedTarget) return;
     const source = regionById(campaign.regions, frontDraftSourceId);
     if (!source || source.kind !== 'player' || !source.adjacent.includes(selectedTarget.id)) {
       return announce('Choose a neighboring region under your crown.', true);
@@ -1467,6 +1495,7 @@ function App() {
   };
 
   const updateFrontAllocation = (frontId: string, desiredForces: number) => {
+    if (!guardCampaignActive(campaign)) return;
     let nextCommitted = 0;
     let changed = false;
     updateCampaign((current) => {
@@ -1495,6 +1524,7 @@ function App() {
   };
 
   const recallFront = (frontId: string) => {
+    if (!guardCampaignActive(campaign)) return;
     updateCampaign((current) => {
       const front = current.fronts.find((candidate) => candidate.id === frontId);
       if (!front || front.committedForces <= 0) return current;
@@ -1515,6 +1545,7 @@ function App() {
   };
 
   const cancelFront = (frontId: string) => {
+    if (!guardCampaignActive(campaign)) return;
     const front = campaign?.fronts.find((candidate) => candidate.id === frontId);
     if (!front) return;
     updateCampaign((current) => ({
@@ -1534,7 +1565,7 @@ function App() {
   const selectedPartnerId = selectedTarget?.id;
 
   const sendEnvoy = () => {
-    if (!campaign || !diplomacyEnabled || !selectedPartnerId) return;
+    if (!guardCampaignActive(campaign) || !diplomacyEnabled || !selectedPartnerId) return;
     const cooldown = campaign.diplomacy.envoyCooldowns[selectedPartnerId] ?? 0;
     if (cooldown > 0) return announce(`The envoy office needs ${cooldown} more turn${cooldown === 1 ? '' : 's'} before it can return.`, true);
     const influenceCost = campaign.diplomacy.posture === 'assertive' ? 8 : 5;
@@ -1556,7 +1587,7 @@ function App() {
   };
 
   const proposeTreaty = (kind: TreatyKind) => {
-    if (!campaign || !diplomacyEnabled || !selectedPartnerId || !selectedPartner) return;
+    if (!guardCampaignActive(campaign) || !diplomacyEnabled || !selectedPartnerId || !selectedPartner) return;
     const offer = kind === 'trade'
       ? selectedPartner.offers.trade
       : kind === 'non-aggression'
@@ -1594,7 +1625,7 @@ function App() {
   };
 
   const toggleEmbargo = () => {
-    if (!campaign || !diplomacyEnabled || !selectedPartnerId) return;
+    if (!guardCampaignActive(campaign) || !diplomacyEnabled || !selectedPartnerId) return;
     const partnerName = regionById(campaign.regions, selectedPartnerId)?.name ?? 'the neighboring court';
     const imposing = !campaign.embargoes.includes(selectedPartnerId);
     updateCampaign((current) => ({
@@ -1611,7 +1642,7 @@ function App() {
   };
 
   const breakTreaty = (treatyId: string) => {
-    if (!campaign || !diplomacyEnabled) return;
+    if (!guardCampaignActive(campaign) || !diplomacyEnabled) return;
     const treaty = campaign.treaties.find((candidate) => candidate.id === treatyId);
     if (!treaty) return;
     const partnerName = regionById(campaign.regions, treaty.partnerRegionId)?.name ?? 'the neighboring court';
@@ -1630,7 +1661,7 @@ function App() {
   };
 
   const establishTradeRoute = () => {
-    if (!campaign || !commerceEnabled || !selectedTarget || !tradeCanEstablish) return announce(tradeEstablishReason, true);
+    if (!guardCampaignActive(campaign) || !commerceEnabled || !selectedTarget || !tradeCanEstablish) return announce(tradeEstablishReason, true);
     const source = regionById(campaign.regions, tradeDraftSourceId);
     if (!source) return announce('Choose a valid source region for the convoy.', true);
     const partnerName = selectedTarget.name;
@@ -1655,7 +1686,7 @@ function App() {
   };
 
   const cancelTradeRoute = () => {
-    if (!campaign || !selectedPartnerId) return;
+    if (!guardCampaignActive(campaign) || !selectedPartnerId) return;
     updateCampaign((current) => ({
       ...current,
       tradeRoutes: current.tradeRoutes.filter((route) => route.partnerRegionId !== selectedPartnerId),
@@ -1665,7 +1696,7 @@ function App() {
   };
 
   const renewTradeRoute = () => {
-    if (!campaign || !selectedPartnerId) return;
+    if (!guardCampaignActive(campaign) || !selectedPartnerId) return;
     const route = campaign.tradeRoutes.find((candidate) => candidate.partnerRegionId === selectedPartnerId);
     if (!route) return;
     const condition = routeCondition(campaign, route);
@@ -1683,7 +1714,7 @@ function App() {
   };
 
   const buildBarracks = () => {
-    if (!campaign || !selected || selected.kind !== 'player') return;
+    if (!guardCampaignActive(campaign) || !selected || selected.kind !== 'player') return;
     if (selected.barracks) return announce('A barracks already stands here.', true);
     if (campaign.gold < 80) return announce('The treasury cannot fund this construction yet.', true);
     updateCampaign((current) => ({
@@ -1698,7 +1729,7 @@ function App() {
   };
 
   const upgradeSettlement = () => {
-    if (!campaign || !selected || selected.kind !== 'player') return;
+    if (!guardCampaignActive(campaign) || !selected || selected.kind !== 'player') return;
     const costs: Record<Settlement, number> = { Village: 110, Town: 190, City: 9999 };
     const nextSettlement: Record<Settlement, Settlement> = { Village: 'Town', Town: 'City', City: 'City' };
     const cost = costs[selected.settlement];
@@ -1718,7 +1749,7 @@ function App() {
   };
 
   const recruitForces = () => {
-    if (!campaign || !selected || selected.kind !== 'player') return;
+    if (!guardCampaignActive(campaign) || !selected || selected.kind !== 'player') return;
     const cost = 25;
     if (campaign.gold < cost || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)) return announce('Not enough gold or grain to call a new levy.', true);
     const bonus = selected.barracks ? 16 : 10;
@@ -1737,6 +1768,7 @@ function App() {
   };
 
   const attackFront = (frontId: string) => {
+    if (!guardCampaignActive(campaign)) return;
     const front = campaign?.fronts.find((candidate) => candidate.id === frontId);
     if (!campaign || !front || !front.committedForces) {
       return announce('Stage soldiers at a front before committing an attack.', true);
@@ -1765,9 +1797,14 @@ function App() {
       : front.committedForces - Math.floor(front.committedForces / 3);
     const survivors = front.committedForces - casualties;
     const retreating = won ? 0 : front.committedForces - casualties;
+    const victoryReached = won &&
+      campaign.status === 'active' &&
+      campaign.regions.filter((region) => region.kind === 'player').length + 1 >= KINGDOM_GOAL;
 
     updateCampaign((current) => ({
       ...current,
+      status: victoryReached ? 'victory' : current.status,
+      victoryTurn: victoryReached ? current.turn : current.victoryTurn,
       forces: Math.max(0, current.forces - casualties),
       militaryAid: supportingForces ? Math.max(0, current.militaryAid - supportingForces) : current.militaryAid,
        relationships: diplomacyEnabled
@@ -1798,22 +1835,30 @@ function App() {
       }),
       fronts: current.fronts.filter((candidate) => candidate.id !== frontId),
       log: [
-        won
-          ? `Victory at ${target.name}; ${survivors} soldiers hold the new border.`
+        victoryReached
+          ? `Victory at ${target.name}; the first kingdom is founded on turn ${current.turn}.`
+          : won
+            ? `Victory at ${target.name}; ${survivors} soldiers hold the new border.`
           : `${target.name} repelled the attack${supportingForces ? ` with ${supportingForces} ally support committed` : ''}; ${retreating} soldiers returned to ${source.name}.`,
         ...current.log,
       ].slice(0, 4),
     }));
     setActiveFrontId(null);
     if (won) {
-      announce(`Victory. ${target.name} now bears your standard.`, false, 'victory');
+      announce(
+        victoryReached
+          ? `The first kingdom is founded. ${target.name} now bears your standard, and this chronicle is complete.`
+          : `Victory. ${target.name} now bears your standard.`,
+        false,
+        'victory',
+      );
     } else {
       announce(`${target.name} held the line. ${retreating} soldiers retreated.`, true, 'error');
     }
   };
 
   const advanceTurn = () => {
-    if (!campaign) return;
+    if (!guardCampaignActive(campaign)) return;
     const nextTurn = campaign.turn + 1;
     const currentEconomy = commerceEnabled ? realmEconomy(campaign.regions) : { production: emptyLedger(), consumption: emptyLedger() };
     const nextResources = { ...campaign.resources };
@@ -1951,7 +1996,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${campaignComplete ? 'is-complete' : ''}`}>
       <div className="game-layout">
         <aside className="sidebar">
           <div className="brand-mark">
@@ -1973,7 +2018,7 @@ function App() {
         <section className="main-area">
           <header className="topbar">
             <div>
-               <div className="page-kicker">Canvas edition · Continental chronicle · Turn {String(campaign.turn).padStart(2, '0')}</div>
+               <div className="page-kicker">{campaignComplete ? 'Completed chronicle · Review edition' : 'Canvas edition · Continental chronicle'} · Turn {String(campaign.turn).padStart(2, '0')}</div>
               <h1 className="page-title">{campaign.nation}</h1>
             </div>
             <div className="turn-control">
@@ -1982,6 +2027,7 @@ function App() {
                 onChange={updateExpansionSelection}
                 open={systemsOpen}
                 setOpen={setSystemsOpen}
+                readOnly={campaignComplete}
               />
               <ThemeControl
                 theme={theme}
@@ -1996,9 +2042,21 @@ function App() {
                 setOpen={setAppearanceOpen}
               />
               <div className="turn-count"><span>Current turn</span><strong data-testid="text-current-turn">{campaign.turn}</strong></div>
-              <button className="button-primary" onClick={advanceTurn} data-testid="button-advance-turn"><ArrowRight size={15} /><span>Advance turn</span></button>
+              <button className="button-primary" onClick={advanceTurn} disabled={campaignComplete} data-testid="button-advance-turn"><ArrowRight size={15} /><span>{campaignComplete ? 'Chronicle complete' : 'Advance turn'}</span></button>
             </div>
           </header>
+
+          {campaignComplete && (
+            <section className="campaign-status-banner" role="status" aria-labelledby="campaign-status-title" data-testid="panel-campaign-victory">
+              <div className="campaign-status-mark"><Crown size={21} aria-hidden="true" /></div>
+              <div className="campaign-status-copy">
+                <div className="panel-kicker">The first kingdom is founded</div>
+                <h2 id="campaign-status-title">{campaign.nation} has entered the chronicle</h2>
+                <p>Your standard now flies over three provinces. The map, dispatches, and court records remain available for review; start a new chronicle only when you choose.</p>
+              </div>
+              <button className="button-quiet campaign-status-action" onClick={restartCampaign} data-testid="button-start-new-chronicle"><Minus size={14} /> Begin a new chronicle</button>
+            </section>
+          )}
 
           <ResourceStrip
             items={[
@@ -2077,7 +2135,7 @@ function App() {
             </section>
 
             <div className="right-stack">
-              {activeFrontSummary && (
+          {activeFrontSummary && (
                 <FrontDossier
                   front={activeFrontSummary}
                   allocation={activeFrontSummary.committedForces}
@@ -2086,6 +2144,7 @@ function App() {
                   onRecall={() => recallFront(activeFrontSummary.id)}
                   onCancel={() => cancelFront(activeFrontSummary.id)}
                   onAttack={() => attackFront(activeFrontSummary.id)}
+                  readOnly={campaignComplete}
                 />
               )}
               <section className="panel selection-panel">
@@ -2107,9 +2166,9 @@ function App() {
                     </div>
                     {selected.kind === 'player' ? (
                       <div className="action-stack">
-                        <button className="button-quiet action-button" onClick={buildBarracks} disabled={selected.barracks || campaign.gold < 80} data-testid="button-build-barracks"><span><Hammer size={14} /> {selected.barracks ? 'Barracks established' : 'Build barracks'}</span><span className="action-cost">{selected.barracks ? <Check size={13} /> : '80 gold'}</span></button>
-                        <button className="button-quiet action-button" onClick={upgradeSettlement} disabled={selected.settlement === 'City' || campaign.gold < (selected.settlement === 'Village' ? 110 : 190)} data-testid="button-upgrade-settlement"><span><Landmark size={14} /> {selected.settlement === 'City' ? 'City charter complete' : `Upgrade to ${selected.settlement === 'Village' ? 'town' : 'city'}`}</span><span className="action-cost">{selected.settlement === 'City' ? <Check size={13} /> : `${selected.settlement === 'Village' ? 110 : 190} gold`}</span></button>
-                        <button className="button-primary action-button" onClick={recruitForces} disabled={campaign.gold < 25 || campaign.food < 10} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">25 gold · 10 food</span></button>
+                         <button className="button-quiet action-button" onClick={buildBarracks} disabled={campaignComplete || selected.barracks || campaign.gold < 80} data-testid="button-build-barracks"><span><Hammer size={14} /> {selected.barracks ? 'Barracks established' : 'Build barracks'}</span><span className="action-cost">{selected.barracks ? <Check size={13} /> : '80 gold'}</span></button>
+                         <button className="button-quiet action-button" onClick={upgradeSettlement} disabled={campaignComplete || selected.settlement === 'City' || campaign.gold < (selected.settlement === 'Village' ? 110 : 190)} data-testid="button-upgrade-settlement"><span><Landmark size={14} /> {selected.settlement === 'City' ? 'City charter complete' : `Upgrade to ${selected.settlement === 'Village' ? 'town' : 'city'}`}</span><span className="action-cost">{selected.settlement === 'City' ? <Check size={13} /> : `${selected.settlement === 'Village' ? 110 : 190} gold`}</span></button>
+                         <button className="button-primary action-button" onClick={recruitForces} disabled={campaignComplete || campaign.gold < 25 || campaign.food < 10} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">25 gold · 10 food</span></button>
                       </div>
                     ) : (
                       <>
@@ -2128,6 +2187,7 @@ function App() {
                             }}
                             onAllocationChange={setFrontDraftAllocation}
                             onCreate={createFront}
+                             readOnly={campaignComplete}
                           />
                         ) : (
                           <p className="front-unavailable">
@@ -2158,6 +2218,7 @@ function App() {
                   onEstablish={establishTradeRoute}
                   onCancel={cancelTradeRoute}
                   onRenew={renewTradeRoute}
+                  readOnly={campaignComplete}
                 />
               ) : (
                 <section className="panel pack-dormant-panel pack-dormant-panel-small" aria-label="Commerce and Industry dormant" data-testid="panel-trade-dormant">
@@ -2178,6 +2239,7 @@ function App() {
                   onEmbargo={toggleEmbargo}
                   onBreakTreaty={breakTreaty}
                   onPostureChange={updateDiplomaticPosture}
+                  readOnly={campaignComplete}
                 />
               ) : (
                 <section className="panel pack-dormant-panel pack-dormant-panel-small" aria-label="Diplomacy and Alliances dormant" data-testid="panel-diplomacy-dormant">
@@ -2186,12 +2248,12 @@ function App() {
                 </section>
               )}
 
-              <section className="panel objective-panel">
-                 <div className="panel-kicker">The first charter</div>
-                 <h3>Secure your first province.</h3>
-                 <p>Hold three provinces to establish a true kingdom. Build your strength, then decide which border to redraw.</p>
+               <section className="panel objective-panel">
+                  <div className="panel-kicker">{campaignComplete ? 'Campaign complete' : 'The first charter'}</div>
+                  <h3>{campaignComplete ? 'Your first kingdom stands.' : 'Secure your first province.'}</h3>
+                  <p>{campaignComplete ? `The realm reached its founding goal on turn ${campaign.victoryTurn ?? campaign.turn}. Review the chart and chronicle, or begin a new campaign when you are ready.` : 'Hold three provinces to establish a true kingdom. Build your strength, then decide which border to redraw.'}</p>
                 <div className="objective-progress"><span style={{ width: `${objectiveProgress}%` }} /></div>
-                 <div className="mono objective-status" data-testid="status-objective">{playerRegions.length} of 3 provinces held</div>
+                  <div className="mono objective-status" data-testid="status-objective">{campaignComplete ? `Completed on turn ${campaign.victoryTurn ?? campaign.turn}` : `${playerRegions.length} of ${KINGDOM_GOAL} provinces held`}</div>
               </section>
 
               <DispatchList entries={campaign.log} />

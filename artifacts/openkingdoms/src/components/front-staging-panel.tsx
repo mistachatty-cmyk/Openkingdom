@@ -77,6 +77,7 @@ export function FrontPlanner({
   onSourceChange,
   onAllocationChange,
   onCreate,
+  readOnly = false,
 }: {
   targetName: string;
   name: string;
@@ -87,6 +88,7 @@ export function FrontPlanner({
   onSourceChange: (value: string) => void;
   onAllocationChange: (value: number) => void;
   onCreate: () => void;
+  readOnly?: boolean;
 }) {
   const selectedSource = sourceOptions.find((source) => source.id === sourceId);
   const maxAllocation = selectedSource?.forces ?? 0;
@@ -106,6 +108,7 @@ export function FrontPlanner({
         <input
           value={name}
           onChange={(event) => onNameChange(event.target.value)}
+          disabled={readOnly}
           maxLength={48}
           placeholder={`${targetName} Front`}
           data-testid="input-front-name"
@@ -116,7 +119,7 @@ export function FrontPlanner({
         <select
           value={sourceId}
           onChange={(event) => onSourceChange(event.target.value)}
-          disabled={!sourceOptions.length}
+          disabled={readOnly || !sourceOptions.length}
           data-testid="select-front-source"
         >
           {sourceOptions.map((source) => (
@@ -139,7 +142,7 @@ export function FrontPlanner({
           step={1}
           value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
-          disabled={!sourceOptions.length}
+          disabled={readOnly || !sourceOptions.length}
           aria-label="Soldiers to stage at this front"
           data-testid="range-front-forces"
         />
@@ -151,7 +154,7 @@ export function FrontPlanner({
           step={1}
           value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
-          disabled={!sourceOptions.length}
+          disabled={readOnly || !sourceOptions.length}
           aria-label="Exact soldiers to stage"
           data-testid="input-front-forces"
         />
@@ -160,7 +163,7 @@ export function FrontPlanner({
         type="button"
         className="button-primary front-create-button"
         onClick={onCreate}
-        disabled={!sourceOptions.length}
+        disabled={readOnly || !sourceOptions.length}
         data-testid="button-create-front"
       >
         <Swords size={14} aria-hidden="true" /> Create front and stage forces
@@ -177,6 +180,7 @@ export function FrontDossier({
   onRecall,
   onCancel,
   onAttack,
+  readOnly = false,
 }: {
   front: FrontSummary;
   allocation: number;
@@ -185,6 +189,7 @@ export function FrontDossier({
   onRecall: () => void;
   onCancel: () => void;
   onAttack: () => void;
+  readOnly?: boolean;
 }) {
   const safeAllocation = Number.isFinite(allocation) ? Math.max(0, Math.min(allocation, maxAllocation)) : 0;
 
@@ -222,6 +227,7 @@ export function FrontDossier({
           step={1}
           value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
+          disabled={readOnly}
           aria-label={`Projected attack strength for ${front.name}`}
           data-testid={`range-front-forces-${front.id}`}
         />
@@ -233,6 +239,7 @@ export function FrontDossier({
           step={1}
           value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
+          disabled={readOnly}
           aria-label={`Exact committed soldiers for ${front.name}`}
           data-testid={`input-front-forces-${front.id}`}
         />
@@ -247,13 +254,13 @@ export function FrontDossier({
               : 'Stage soldiers to preview the outcome before committing the attack.'}
       </p>
       <div className="front-action-row">
-        <button type="button" className="button-quiet" onClick={onRecall} disabled={!front.committedForces} data-testid={`button-recall-front-${front.id}`}>
+          <button type="button" className="button-quiet" onClick={onRecall} disabled={readOnly || !front.committedForces} data-testid={`button-recall-front-${front.id}`}>
           <RotateCcw size={13} aria-hidden="true" /> Recall staged
         </button>
-        <button type="button" className="button-quiet" onClick={onCancel} data-testid={`button-cancel-front-${front.id}`}>
+        <button type="button" className="button-quiet" onClick={onCancel} disabled={readOnly} data-testid={`button-cancel-front-${front.id}`}>
           <X size={13} aria-hidden="true" /> Cancel front
         </button>
-        <button type="button" className="button-primary" onClick={onAttack} disabled={!front.committedForces} data-testid="button-attack-front">
+        <button type="button" className="button-primary" onClick={onAttack} disabled={readOnly || !front.committedForces} data-testid="button-attack-front">
           <Swords size={13} aria-hidden="true" /> Attack
         </button>
       </div>

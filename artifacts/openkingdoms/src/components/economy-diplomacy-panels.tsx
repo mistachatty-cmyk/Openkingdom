@@ -177,6 +177,7 @@ export function TradePanel({
   onCancel,
   onRenew,
   diplomacyEnabled = true,
+  readOnly = false,
 }: {
   partnerName: string | null;
   route: TradeRouteView | null;
@@ -193,6 +194,7 @@ export function TradePanel({
   onCancel: () => void;
   onRenew: () => void;
   diplomacyEnabled?: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <section className="panel trade-panel" aria-labelledby="trade-panel-title">
@@ -223,10 +225,10 @@ export function TradePanel({
               {route.statusReason}
             </p>
             <div className="panel-action-row">
-              <button type="button" className="button-quiet" onClick={onRenew} disabled={route.status === 'active' && route.remainingTurns > 1} data-testid="button-renew-trade-route">
+              <button type="button" className="button-quiet" onClick={onRenew} disabled={readOnly || (route.status === 'active' && route.remainingTurns > 1)} data-testid="button-renew-trade-route">
                 <RefreshCw size={13} aria-hidden="true" /> Renew route
               </button>
-              <button type="button" className="button-quiet" onClick={onCancel} data-testid="button-cancel-trade-route">
+              <button type="button" className="button-quiet" onClick={onCancel} disabled={readOnly} data-testid="button-cancel-trade-route">
                 <X size={13} aria-hidden="true" /> Cancel route
               </button>
             </div>
@@ -235,24 +237,24 @@ export function TradePanel({
           <>
             <p className="panel-intro">A route to <strong>{partnerName}</strong> earns gold and moves goods, but it needs {diplomacyEnabled ? 'a trade agreement, ' : 'an open market charter, '}an open border, and dependable stores.</p>
             <label className="panel-field"><span>Source region</span>
-              <select value={sourceId} onChange={(event) => onSourceChange(event.target.value)} disabled={!sourceOptions.length} data-testid="select-trade-source">
+                <select value={sourceId} onChange={(event) => onSourceChange(event.target.value)} disabled={readOnly || !sourceOptions.length} data-testid="select-trade-source">
                 {sourceOptions.map((source) => <option value={source.id} key={source.id}>{source.name}</option>)}
               </select>
             </label>
             <div className="panel-field-grid">
               <label className="panel-field"><span>Export</span>
-                <select value={exportResource} onChange={(event) => onExportChange(event.target.value as ResourceType)} data-testid="select-trade-export">
+                <select value={exportResource} onChange={(event) => onExportChange(event.target.value as ResourceType)} disabled={readOnly} data-testid="select-trade-export">
                   {RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{resourceNames[resource]}</option>)}
                 </select>
               </label>
               <label className="panel-field"><span>Import</span>
-                <select value={importResource} onChange={(event) => onImportChange(event.target.value as ResourceType)} data-testid="select-trade-import">
+                <select value={importResource} onChange={(event) => onImportChange(event.target.value as ResourceType)} disabled={readOnly} data-testid="select-trade-import">
                   {RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{resourceNames[resource]}</option>)}
                 </select>
               </label>
             </div>
             <p className="route-explanation"><Coins size={13} aria-hidden="true" /> Expected return: +16 gold income, 4 gold upkeep, six-turn charter, moderate risk.</p>
-            <button type="button" className="button-primary panel-wide-button" onClick={onEstablish} disabled={!canEstablish} data-testid="button-establish-trade-route">
+            <button type="button" className="button-primary panel-wide-button" onClick={onEstablish} disabled={readOnly || !canEstablish} data-testid="button-establish-trade-route">
               <Route size={13} aria-hidden="true" /> Establish route
             </button>
             <p className={`panel-reason ${canEstablish ? '' : 'is-warning'}`} role="status">{establishReason}</p>
@@ -277,6 +279,7 @@ export function DiplomacyPanel({
   onEmbargo,
   onBreakTreaty,
   onPostureChange,
+  readOnly = false,
 }: {
   partner: DiplomacyPartnerView | null;
   reputation: number;
@@ -289,6 +292,7 @@ export function DiplomacyPanel({
   onEmbargo: () => void;
   onBreakTreaty: (treatyId: string) => void;
   onPostureChange: (posture: DiplomacyPartnerView['posture']) => void;
+  readOnly?: boolean;
 }) {
   return (
     <section className="panel diplomacy-panel" aria-labelledby="diplomacy-panel-title">
@@ -316,6 +320,7 @@ export function DiplomacyPanel({
             <select
               value={partner.posture}
               onChange={(event) => onPostureChange(event.target.value as DiplomacyPartnerView['posture'])}
+              disabled={readOnly}
               aria-label="Diplomatic posture"
               data-testid="select-diplomatic-posture"
             >
@@ -326,12 +331,12 @@ export function DiplomacyPanel({
           </div>
           <p className="panel-intro">Offers are judged by trust, existing obligations, and the state of the border. The reason beside each action is part of the negotiation.</p>
           <div className="diplomacy-offers">
-            <DiplomacyOffer label="Send an envoy" icon={<Handshake size={13} aria-hidden="true" />} enabled={partner.offers.envoy.enabled} reason={partner.offers.envoy.reason} onClick={onSendEnvoy} testId="button-send-envoy" />
-            <DiplomacyOffer label="Propose trade agreement" icon={<Route size={13} aria-hidden="true" />} enabled={partner.offers.trade.enabled} reason={partner.offers.trade.reason} onClick={onTradeAgreement} testId="button-propose-trade" />
-            <DiplomacyOffer label="Propose non-aggression pact" icon={<Shield size={13} aria-hidden="true" />} enabled={partner.offers.nonAggression.enabled} reason={partner.offers.nonAggression.reason} onClick={onNonAggression} testId="button-propose-nap" />
-            <DiplomacyOffer label="Propose defensive alliance" icon={<Swords size={13} aria-hidden="true" />} enabled={partner.offers.alliance.enabled} reason={partner.offers.alliance.reason} onClick={onAlliance} testId="button-propose-alliance" />
-            <DiplomacyOffer label="Request military aid" icon={<Shield size={13} aria-hidden="true" />} enabled={partner.offers.militaryAid.enabled} reason={partner.offers.militaryAid.reason} onClick={onMilitaryAid} testId="button-request-military-aid" />
-            <DiplomacyOffer label="Offer peace terms" icon={<Handshake size={13} aria-hidden="true" />} enabled={partner.offers.peace.enabled} reason={partner.offers.peace.reason} onClick={onPeace} testId="button-offer-peace" />
+            <DiplomacyOffer label="Send an envoy" icon={<Handshake size={13} aria-hidden="true" />} enabled={partner.offers.envoy.enabled} reason={partner.offers.envoy.reason} onClick={onSendEnvoy} testId="button-send-envoy" readOnly={readOnly} />
+            <DiplomacyOffer label="Propose trade agreement" icon={<Route size={13} aria-hidden="true" />} enabled={partner.offers.trade.enabled} reason={partner.offers.trade.reason} onClick={onTradeAgreement} testId="button-propose-trade" readOnly={readOnly} />
+            <DiplomacyOffer label="Propose non-aggression pact" icon={<Shield size={13} aria-hidden="true" />} enabled={partner.offers.nonAggression.enabled} reason={partner.offers.nonAggression.reason} onClick={onNonAggression} testId="button-propose-nap" readOnly={readOnly} />
+            <DiplomacyOffer label="Propose defensive alliance" icon={<Swords size={13} aria-hidden="true" />} enabled={partner.offers.alliance.enabled} reason={partner.offers.alliance.reason} onClick={onAlliance} testId="button-propose-alliance" readOnly={readOnly} />
+            <DiplomacyOffer label="Request military aid" icon={<Shield size={13} aria-hidden="true" />} enabled={partner.offers.militaryAid.enabled} reason={partner.offers.militaryAid.reason} onClick={onMilitaryAid} testId="button-request-military-aid" readOnly={readOnly} />
+            <DiplomacyOffer label="Offer peace terms" icon={<Handshake size={13} aria-hidden="true" />} enabled={partner.offers.peace.enabled} reason={partner.offers.peace.reason} onClick={onPeace} testId="button-offer-peace" readOnly={readOnly} />
           </div>
           {partner.treaties.length ? (
             <div className="treaty-list">
@@ -339,12 +344,12 @@ export function DiplomacyPanel({
               {partner.treaties.map((treaty) => (
                 <div className="treaty-row" key={treaty.id}>
                   <span><Check size={12} aria-hidden="true" /> {treaty.label}<small>{treaty.remainingTurns} turns remain</small></span>
-                  <button type="button" className="treaty-break-button" onClick={() => onBreakTreaty(treaty.id)} aria-label={`Break ${treaty.label}`} data-testid={`button-break-treaty-${treaty.id}`}><Ban size={12} aria-hidden="true" /></button>
+                  <button type="button" className="treaty-break-button" onClick={() => onBreakTreaty(treaty.id)} disabled={readOnly} aria-label={`Break ${treaty.label}`} data-testid={`button-break-treaty-${treaty.id}`}><Ban size={12} aria-hidden="true" /></button>
                 </div>
               ))}
             </div>
           ) : null}
-          <button type="button" className={`embargo-button ${partner.embargoed ? 'is-active' : ''}`} onClick={onEmbargo} data-testid="button-toggle-embargo">
+          <button type="button" className={`embargo-button ${partner.embargoed ? 'is-active' : ''}`} onClick={onEmbargo} disabled={readOnly} data-testid="button-toggle-embargo">
             <Ban size={13} aria-hidden="true" /> {partner.embargoed ? 'Lift embargo' : 'Impose embargo'}
           </button>
         </>
@@ -362,6 +367,7 @@ function DiplomacyOffer({
   reason,
   onClick,
   testId,
+  readOnly = false,
 }: {
   label: string;
   icon: ReactNode;
@@ -369,11 +375,12 @@ function DiplomacyOffer({
   reason: string;
   onClick: () => void;
   testId: string;
+  readOnly?: boolean;
 }) {
   return (
-    <div className={`diplomacy-offer ${enabled ? '' : 'is-disabled'}`}>
-      <button type="button" className="button-quiet" onClick={onClick} disabled={!enabled} data-testid={testId}>{icon}<span>{label}</span></button>
-      <small>{reason}</small>
+    <div className={`diplomacy-offer ${enabled && !readOnly ? '' : 'is-disabled'}`}>
+      <button type="button" className="button-quiet" onClick={onClick} disabled={readOnly || !enabled} data-testid={testId}>{icon}<span>{label}</span></button>
+      <small>{readOnly ? 'This chronicle is complete; the court is preserved for review.' : reason}</small>
     </div>
   );
 }

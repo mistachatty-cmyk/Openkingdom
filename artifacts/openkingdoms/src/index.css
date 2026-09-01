@@ -285,6 +285,43 @@
 .turn-count { text-align: right; }
 .turn-count span { display: block; color: #8a6e47; font-size: 9px; text-transform: uppercase; letter-spacing: .16em; }
 .turn-count strong { display: block; font-family: var(--app-font-mono); font-size: 18px; color: #253247; margin-top: 4px; }
+.campaign-status-banner {
+  align-items: center;
+  background: linear-gradient(115deg, #304560 0%, #355d5d 100%);
+  border: 1px solid #b9954c;
+  box-shadow: 0 12px 26px rgba(45, 52, 49, .14);
+  color: #f0e5cc;
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  position: relative;
+}
+.campaign-status-banner::before {
+  border: 1px solid rgba(230, 190, 101, .28);
+  content: "";
+  inset: 5px;
+  pointer-events: none;
+  position: absolute;
+}
+.campaign-status-mark {
+  align-items: center;
+  border: 1px solid #e2b654;
+  color: #e2b654;
+  display: flex;
+  flex: 0 0 auto;
+  height: 42px;
+  justify-content: center;
+  transform: rotate(45deg);
+  width: 42px;
+}
+.campaign-status-mark svg { transform: rotate(-45deg); }
+.campaign-status-copy { flex: 1 1 auto; min-width: 0; position: relative; z-index: 1; }
+.campaign-status-copy .panel-kicker { color: #e2b654; }
+.campaign-status-copy h2 { color: #f5e9cb; font-family: var(--app-font-serif); font-size: 27px; line-height: .9; margin: 5px 0 7px; }
+.campaign-status-copy p { color: #c2c9c0; font-size: 10px; line-height: 1.5; margin: 0; max-width: 610px; }
+.campaign-status-action { flex: 0 0 auto; position: relative; z-index: 1; }
+.is-complete .objective-panel { background: #355d5d; }
 .button-quiet {
   border: 1px solid #bba77f; background: rgba(245, 236, 216, .55); color: #364660; min-height: 39px; padding: 0 13px;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em;
@@ -436,6 +473,8 @@
   .map-panel { min-height: 460px; padding: 12px; }
   .map-legend { display: none; }
   .right-stack { grid-template-columns: 1fr; }
+  .campaign-status-banner { align-items: flex-start; flex-wrap: wrap; }
+  .campaign-status-action { margin-left: 58px; }
   .feedback { left: 14px; right: 14px; bottom: 14px; max-width: none; }
   .guide-drawer { padding: 25px 20px; }
 }

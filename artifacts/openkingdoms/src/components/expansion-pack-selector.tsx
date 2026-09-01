@@ -19,10 +19,12 @@ export function ExpansionPackSelector({
   selection,
   onChange,
   compact = false,
+  readOnly = false,
 }: {
   selection: ExpansionSelection;
   onChange: (selection: ExpansionSelection) => void;
   compact?: boolean;
+  readOnly?: boolean;
 }) {
   const preset = getExpansionPreset(selection);
   const [customOpen, setCustomOpen] = useState(preset === 'custom');
@@ -52,6 +54,7 @@ export function ExpansionPackSelector({
             key={option}
             className={`pack-preset ${activePreset === option ? 'is-selected' : ''}`}
             onClick={() => choosePreset(option)}
+            disabled={readOnly}
             aria-pressed={activePreset === option}
             data-testid={`button-pack-preset-${option}`}
           >
@@ -68,6 +71,7 @@ export function ExpansionPackSelector({
                 type="checkbox"
                 checked={selection[pack.id]}
                 onChange={() => togglePack(pack.id)}
+                aria-disabled={readOnly}
                 data-testid={`checkbox-pack-${pack.id}`}
               />
               <span className="pack-option-copy">
@@ -91,11 +95,13 @@ export function ExpansionPackControl({
   onChange,
   open,
   setOpen,
+  readOnly = false,
 }: {
   selection: ExpansionSelection;
   onChange: (selection: ExpansionSelection) => void;
   open: boolean;
   setOpen: (open: boolean) => void;
+  readOnly?: boolean;
 }) {
   const preset = getExpansionPreset(selection);
   return (
@@ -104,6 +110,7 @@ export function ExpansionPackControl({
         type="button"
         className="button-quiet pack-control-toggle"
         onClick={() => setOpen(!open)}
+        disabled={readOnly}
         aria-expanded={open}
         aria-controls="campaign-systems-menu"
         data-testid="button-open-campaign-systems"
@@ -120,7 +127,7 @@ export function ExpansionPackControl({
             </div>
             <button type="button" className="close-button" onClick={() => setOpen(false)} aria-label="Close campaign systems" data-testid="button-close-campaign-systems">×</button>
           </div>
-          <ExpansionPackSelector selection={selection} onChange={onChange} compact />
+          <ExpansionPackSelector selection={selection} onChange={onChange} compact readOnly={readOnly} />
         </div>
       )}
     </div>
