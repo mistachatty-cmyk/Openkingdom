@@ -2038,7 +2038,14 @@ function App() {
       (treaty.kind === 'non-aggression' || treaty.kind === 'defensive-alliance' || treaty.kind === 'peace') &&
       treaty.startedTurn + treaty.duration > campaign.turn,
     );
-    if (protectedTreaty) return announce(`This attack is blocked by an active ${treatyLabel(protectedTreaty.kind).toLowerCase()}.`, true);
+    if (protectedTreaty) {
+      const message = `This attack is blocked by an active ${treatyLabel(protectedTreaty.kind).toLowerCase()}.`;
+      updateCampaign((current) => ({
+        ...current,
+        log: [message, ...current.log].slice(0, 4),
+      }));
+      return announce(message, true);
+    }
     const supportingForces = diplomacyEnabled && campaign.militaryAid > 0 && campaign.treaties.some((treaty) =>
       treaty.partnerRegionId !== target.id &&
       treaty.kind === 'defensive-alliance' &&

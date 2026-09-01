@@ -50,6 +50,21 @@ const TREATY_SCENARIOS: TreatyScenario[] = [
   },
 ];
 
+const PROTECTED_TREATY_SCENARIOS = [
+  {
+    kind: "non-aggression",
+    label: "non-aggression pact",
+  },
+  {
+    kind: "defensive-alliance",
+    label: "defensive alliance",
+  },
+  {
+    kind: "peace",
+    label: "peace terms",
+  },
+] as const;
+
 async function startDiplomacyCampaign(page: Page) {
   await page.goto("/");
   await page.getByTestId("input-nation-name").fill("Diplomacy Test Crown");
@@ -155,6 +170,53 @@ async function seedFriendlyPartner(page: Page) {
   await selectRegion(page, "bracken");
 }
 
+async function seedProtectedFront(
+  page: Page,
+  kind: (typeof PROTECTED_TREATY_SCENARIOS)[number]["kind"],
+) {
+  await page.evaluate((treatyKind) => {
+    const raw = window.localStorage.getItem("openkingdoms-campaign");
+    if (!raw) throw new Error("Expected a campaign save before seeding a protected front.");
+    const campaign = JSON.parse(raw);
+    campaign.relationships = {
+      ...campaign.relationships,
+      bracken: treatyKind === "peace" ? "war" : "friendly",
+    };
+    campaign.treaties = [
+      {
+        id: `fixture-${treatyKind}`,
+        partnerRegionId: "bracken",
+        kind: treatyKind,
+        startedTurn: campaign.turn,
+        duration: 1,
+      },
+    ];
+    campaign.fronts = [
+      {
+        id: "fixture-front-aurelian-bracken",
+        name: "Bracken Front",
+        sourceRegionId: "aurelian",
+        targetRegionId: "bracken",
+        committedForces: 20,
+        travelTurns: 0,
+        status: "arrived",
+      },
+    ];
+    campaign.regions = campaign.regions.map((region: { id: string; forces: number }) =>
+      region.id === "aurelian" ? { ...region, forces: 28 } : region,
+    );
+    campaign.forces = 28;
+    campaign.log = ["The fixture chronicle begins."];
+    window.localStorage.setItem(
+      "openkingdoms-campaign",
+      JSON.stringify(campaign),
+    );
+  }, kind);
+  await page.reload();
+  await expect(page.getByTestId("text-current-turn")).toHaveText("1");
+  await selectRegion(page, "bracken");
+}
+
 async function readTreatyCounts(page: Page) {
   return page.evaluate(() => {
     const raw = window.localStorage.getItem("openkingdoms-campaign");
@@ -169,6 +231,7 @@ async function readTreatyCounts(page: Page) {
     );
   });
 }
+
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -305,5 +368,40 @@ for (const scenario of TREATY_SCENARIOS) {
     await expect(page.getByTestId(`treaty-${scenario.kind}`)).toHaveCount(0);
     await expect(page.getByTestId(scenario.buttonTestId)).toBeEnabled();
 
+  });
+}
+
+for (const scenario of PROTECTED_TREATY_SCENARIOS) {
+  test(`blocks a staged attack under an active ${scenario.label} and reopens it after refresh and expiry`, async ({
+    page,
+  }) => {
+    await startDiplomacyCampaign(page);
+    await seedProtectedFront(page, scenario.kind);
+
+    const blockedMessage = `This attack is blocked by an active ${scenario.label}.`;
+    await expect(page.getByTestId(`treaty-${scenario.kind}`)).toHaveCount(1);
+    await expect(page.getByTestId("button-attack-front")).toBeEnabled();
+    await page.getByTestId("button-attack-front").click();
+    await expectCourtReply(page, blockedMessage);
+
+    await page.reload();
+    await selectRegion(page, "bracken");
+    await expect(page.getByTestId(`treaty-${scenario.kind}`)).toHaveCount(1);
+    await expect(page.getByTestId("button-attack-front")).toBeEnabled();
+    await expectPersistedReply(page, blockedMessage);
+
+    await page.getByTestId("button-advance-turn").click();
+    await expect(page.getByTestId("text-current-turn")).toHaveText("2");
+    await expect(page.getByTestId(`treaty-${scenario.kind}`)).toHaveCount(0);
+    await expect(page.getByTestId("button-attack-front")).toBeEnabled();
+
+    await page.getByTestId("button-attack-front").click();
+    await expect(page.getByTestId("status-feedback")).toHaveText(
+      "Bracken March held the line. 6 soldiers retreated.",
+    );
+    await expect(page.getByTestId("text-dispatch-0")).toHaveText(
+      "Bracken March repelled the attack; 6 soldiers returned to Aurelian Reach.",
+    );
+    await expect(page.getByTestId("button-attack-front")).toHaveCount(0);
   });
 }
