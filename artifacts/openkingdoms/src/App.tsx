@@ -28,6 +28,7 @@ import {
   type CanvasPalette,
   type CanvasFront,
   type CanvasRegion,
+  type CanvasRoute,
 } from '@/components/campaign-canvas';
 import {
   AccessibleRegionIndex,
@@ -59,8 +60,10 @@ import {
 type Banner = { name: string; color: string; secondary: string };
 type RegionKind = 'player' | 'rival' | 'neutral';
 type Settlement = 'Village' | 'Town' | 'City';
+type Terrain = 'plains' | 'forest' | 'highland' | 'marsh' | 'coast';
 type Region = {
   id: string;
+  chunkId?: string;
   name: string;
   kind: RegionKind;
   settlement: Settlement;
@@ -68,6 +71,8 @@ type Region = {
   barracks: boolean;
   adjacent: string[];
   description: string;
+  terrain?: Terrain;
+  landmark?: string;
   path: string;
   label: [number, number];
 };
@@ -101,6 +106,7 @@ type TradeRoute = {
 };
 type Campaign = {
   edition: 'Canvas';
+  worldVersion: 2;
   nation: string;
   banner: Banner;
   turn: number;
@@ -273,6 +279,156 @@ const baseRegions: Region[] = [
   },
 ];
 
+const WORLD_WIDTH = 2600;
+const WORLD_HEIGHT = 1600;
+const CORE_SCALE = 1.45;
+const CORE_OFFSET: [number, number] = [760, 520];
+const terrainByRegionId: Record<string, Terrain> = {
+  aurelian: 'plains',
+  bracken: 'forest',
+  saltmere: 'coast',
+  highvale: 'highland',
+  ironwood: 'forest',
+  northwatch: 'highland',
+  sunfall: 'plains',
+};
+const landmarkByRegionId: Record<string, string> = {
+  aurelian: 'River crown',
+  bracken: 'Hedgewatch',
+  saltmere: 'Salt pans',
+  highvale: 'Bell tower',
+  ironwood: 'Old grove',
+  northwatch: 'Stone citadel',
+  sunfall: 'Copper road',
+};
+
+function transformPath(path: string, scale: number, [offsetX, offsetY]: [number, number]) {
+  let coordinateIndex = 0;
+  return path.replace(/-?\d+(?:\.\d+)?/g, (value) => {
+    const number = Number(value);
+    const transformed = coordinateIndex % 2 === 0
+      ? number * scale + offsetX
+      : number * scale + offsetY;
+    coordinateIndex += 1;
+    return String(Math.round(transformed * 10) / 10);
+  });
+}
+
+function chunkIdForPoint(x: number, y: number) {
+  return `chunk-${Math.floor(x / 500)}-${Math.floor(y / 350)}`;
+}
+
+const coreRegions: Region[] = baseRegions.map((region) => ({
+  ...region,
+  chunkId: chunkIdForPoint(region.label[0] * CORE_SCALE + CORE_OFFSET[0], region.label[1] * CORE_SCALE + CORE_OFFSET[1]),
+  terrain: terrainByRegionId[region.id],
+  landmark: landmarkByRegionId[region.id],
+  path: transformPath(region.path, CORE_SCALE, CORE_OFFSET),
+  label: [
+    Math.round(region.label[0] * CORE_SCALE + CORE_OFFSET[0]),
+    Math.round(region.label[1] * CORE_SCALE + CORE_OFFSET[1]),
+  ],
+}));
+
+type FrontierDescriptor = {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  kind: RegionKind;
+  settlement: Settlement;
+  forces: number;
+};
+
+const frontierDescriptors: FrontierDescriptor[] = [
+  { id: 'north-01', name: 'Rimegate', x: 40, y: 60, kind: 'neutral', settlement: 'Village', forces: 22 },
+  { id: 'north-02', name: 'Candlefen', x: 300, y: 60, kind: 'neutral', settlement: 'Village', forces: 28 },
+  { id: 'north-03', name: 'Frostmere', x: 560, y: 60, kind: 'rival', settlement: 'Town', forces: 54 },
+  { id: 'north-04', name: 'Ashen Crown', x: 820, y: 60, kind: 'rival', settlement: 'Town', forces: 68 },
+  { id: 'north-05', name: 'The Pale Road', x: 1080, y: 60, kind: 'neutral', settlement: 'Village', forces: 31 },
+  { id: 'north-06', name: 'Glimmer Pass', x: 1340, y: 60, kind: 'neutral', settlement: 'Village', forces: 26 },
+  { id: 'north-07', name: 'Old Cairn', x: 1600, y: 60, kind: 'rival', settlement: 'City', forces: 112 },
+  { id: 'north-08', name: 'Starfall', x: 1860, y: 60, kind: 'neutral', settlement: 'Town', forces: 45 },
+  { id: 'north-09', name: 'Windscar', x: 2120, y: 60, kind: 'rival', settlement: 'Town', forces: 72 },
+  { id: 'west-01', name: 'Morrow Glen', x: 40, y: 270, kind: 'neutral', settlement: 'Village', forces: 19 },
+  { id: 'west-02', name: 'Thornfield', x: 40, y: 480, kind: 'rival', settlement: 'Town', forces: 48 },
+  { id: 'west-03', name: 'Greenwake', x: 40, y: 690, kind: 'neutral', settlement: 'Town', forces: 36 },
+  { id: 'west-04', name: 'Foxhollow', x: 40, y: 900, kind: 'rival', settlement: 'Village', forces: 42 },
+  { id: 'west-05', name: 'Low Lanterns', x: 40, y: 1110, kind: 'neutral', settlement: 'Village', forces: 24 },
+  { id: 'east-01', name: 'Copperstrand', x: 2120, y: 270, kind: 'neutral', settlement: 'Village', forces: 27 },
+  { id: 'east-02', name: 'Marrow Coast', x: 2120, y: 480, kind: 'rival', settlement: 'Town', forces: 59 },
+  { id: 'east-03', name: 'Vesper Fields', x: 2120, y: 690, kind: 'neutral', settlement: 'Town', forces: 37 },
+  { id: 'east-04', name: 'Redwater', x: 2120, y: 900, kind: 'rival', settlement: 'Town', forces: 63 },
+  { id: 'east-05', name: 'Far Meridian', x: 2120, y: 1110, kind: 'neutral', settlement: 'Village', forces: 21 },
+  { id: 'south-01', name: 'Hearthplain', x: 40, y: 1320, kind: 'neutral', settlement: 'Village', forces: 25 },
+  { id: 'south-02', name: 'Silverbell', x: 300, y: 1320, kind: 'rival', settlement: 'Town', forces: 57 },
+  { id: 'south-03', name: 'Amberstep', x: 560, y: 1320, kind: 'neutral', settlement: 'Village', forces: 29 },
+  { id: 'south-04', name: 'Southwatch', x: 820, y: 1320, kind: 'rival', settlement: 'Town', forces: 64 },
+  { id: 'south-05', name: 'Dawnmouth', x: 1080, y: 1320, kind: 'neutral', settlement: 'Town', forces: 44 },
+  { id: 'south-06', name: 'Goldmere', x: 1340, y: 1320, kind: 'neutral', settlement: 'Village', forces: 23 },
+  { id: 'south-07', name: 'Brass Orchard', x: 1600, y: 1320, kind: 'rival', settlement: 'City', forces: 98 },
+  { id: 'south-08', name: 'Saltwind', x: 1860, y: 1320, kind: 'neutral', settlement: 'Village', forces: 30 },
+  { id: 'south-09', name: 'The Last Ford', x: 2120, y: 1320, kind: 'rival', settlement: 'Town', forces: 70 },
+];
+
+function frontierPath(x: number, y: number) {
+  return `M${x + 8} ${y + 24} L${x + 64} ${y + 5} L${x + 192} ${y + 12} L${x + 226} ${y + 66} L${x + 203} ${y + 151} L${x + 54} ${y + 163} L${x - 4} ${y + 96} Z`;
+}
+
+const frontierRegions: Region[] = frontierDescriptors.map((descriptor) => ({
+  id: descriptor.id,
+  chunkId: chunkIdForPoint(descriptor.x + 110, descriptor.y + 85),
+  name: descriptor.name,
+  kind: descriptor.kind,
+  settlement: descriptor.settlement,
+  forces: descriptor.forces,
+  barracks: descriptor.settlement !== 'Village',
+  adjacent: [],
+  description: `${descriptor.name} lies beyond the settled crown, a distinct place with roads, stores, and a history of its own.`,
+  terrain: descriptor.id.includes('north') ? 'highland' : descriptor.id.includes('west') ? 'forest' : descriptor.id.includes('east') ? 'coast' : 'plains',
+  landmark: descriptor.id.endsWith('03') ? 'Waystone' : descriptor.id.endsWith('07') ? 'Watchtower' : undefined,
+  path: frontierPath(descriptor.x, descriptor.y),
+  label: [descriptor.x + 110, descriptor.y + 82],
+}));
+
+function frontierNeighbors(region: Region) {
+  const descriptor = frontierDescriptors.find((candidate) => candidate.id === region.id);
+  if (!descriptor) return [];
+  return frontierDescriptors
+    .filter((candidate) => candidate.id !== region.id)
+    .filter((candidate) => (
+      (candidate.x === descriptor.x && Math.abs(candidate.y - descriptor.y) <= 220) ||
+      (candidate.y === descriptor.y && Math.abs(candidate.x - descriptor.x) <= 270)
+    ))
+    .map((candidate) => candidate.id);
+}
+
+const worldLinks: Record<string, string[]> = {
+  aurelian: ['west-03', 'south-04'],
+  bracken: ['north-04'],
+  saltmere: ['south-05'],
+  highvale: ['south-05', 'east-03'],
+  ironwood: ['north-05'],
+  northwatch: ['north-07'],
+  sunfall: ['east-03', 'south-07'],
+};
+
+const worldRegions: Region[] = [
+  ...coreRegions.map((region) => ({
+    ...region,
+    adjacent: [...region.adjacent, ...(worldLinks[region.id] ?? [])],
+  })),
+  ...frontierRegions.map((region) => ({
+    ...region,
+    adjacent: [
+      ...frontierNeighbors(region),
+      ...Object.entries(worldLinks)
+        .filter(([, links]) => links.includes(region.id))
+        .map(([coreId]) => coreId),
+    ],
+  })),
+];
+
 const regionEconomy: Record<string, { production: ResourceLedger; consumption: ResourceLedger }> = {
   aurelian: { production: { grain: 22, timber: 5, iron: 1, salt: 0 }, consumption: { grain: 9, timber: 1, iron: 1, salt: 0 } },
   bracken: { production: { grain: 13, timber: 6, iron: 8, salt: 1 }, consumption: { grain: 11, timber: 1, iron: 1, salt: 1 } },
@@ -316,7 +472,15 @@ function settlementOutputMultiplier(settlement: Settlement) {
 }
 
 function economyForRegion(region: Region) {
-  const base = regionEconomy[region.id] ?? { production: emptyLedger(), consumption: emptyLedger() };
+  const base = regionEconomy[region.id] ?? {
+    production: {
+      grain: 8 + (region.id.length % 7),
+      timber: 3 + (region.id.charCodeAt(0) % 5),
+      iron: 1 + (region.id.charCodeAt(region.id.length - 1) % 4),
+      salt: region.id.includes('east') || region.id.includes('south') ? 4 : 1,
+    },
+    consumption: { grain: 7, timber: 1, iron: 1, salt: 1 },
+  };
   const multiplier = settlementOutputMultiplier(region.settlement);
   const production = emptyLedger();
   const consumption = emptyLedger();
@@ -378,6 +542,7 @@ function treatyDuration(kind: TreatyKind) {
 function makeNewCampaign(nation: string, banner: Banner): Campaign {
   return {
     edition: 'Canvas',
+    worldVersion: 2,
     nation: nation.trim() || 'The Unnamed Crown',
     banner,
     turn: 1,
@@ -385,7 +550,7 @@ function makeNewCampaign(nation: string, banner: Banner): Campaign {
     food: 120,
     resources: { grain: 120, timber: 24, iron: 12, salt: 10 },
     forces: 48,
-    regions: baseRegions.map((region) => ({ ...region })),
+    regions: worldRegions.map((region) => ({ ...region, adjacent: [...region.adjacent] })),
     fronts: [],
     relationships: {},
     treaties: [],
@@ -411,7 +576,7 @@ function readCampaign(): Campaign | null {
     }
 
     const savedRegions = saved.regions as Partial<Region>[];
-    const regions = baseRegions.map((base) => {
+    const regions = worldRegions.map((base) => {
       const savedRegion = savedRegions.find((region) => region.id === base.id);
       if (!savedRegion) return { ...base };
       const savedKind =
@@ -429,6 +594,12 @@ function readCampaign(): Campaign | null {
       return {
         ...base,
         ...savedRegion,
+        chunkId: base.chunkId,
+        adjacent: [...base.adjacent],
+        terrain: base.terrain,
+        landmark: base.landmark,
+        path: base.path,
+        label: base.label,
         kind: savedKind,
         settlement: savedSettlement,
         forces:
@@ -541,6 +712,7 @@ function readCampaign(): Campaign | null {
 
     return {
       edition: 'Canvas',
+      worldVersion: 2,
       nation: saved.nation.slice(0, 28),
       banner:
         saved.banner &&
@@ -865,6 +1037,21 @@ function App() {
       committedForces: front.committedForces,
     }];
   });
+  const canvasRoutes = useMemo<CanvasRoute[]>(() => {
+    if (!campaign) return [];
+    return campaign.tradeRoutes.flatMap((route) => {
+      const source = regionById(campaign.regions, route.sourceRegionId);
+      const partner = regionById(campaign.regions, route.partnerRegionId);
+      if (!source || !partner) return [];
+      return [{
+        id: route.id,
+        source: source.label,
+        target: partner.label,
+        partnerRegionId: partner.id,
+        status: routeCondition(campaign, route).status,
+      }];
+    });
+  }, [campaign]);
   const frontSourceOptions = useMemo<FrontSourceOption[]>(() => {
     if (!campaign || !selectedTarget) return [];
     return campaign.regions
@@ -1647,13 +1834,14 @@ function App() {
           <div className="content-grid">
             <section className="map-panel map-in">
               <div className="map-head">
-                <div><div className="panel-kicker">The known realm</div><h2>Borderlands &amp; banners</h2></div>
+                 <div><div className="panel-kicker">The world atlas</div><h2>Borderlands &amp; banners</h2></div>
                 <div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival</span></div>
               </div>
               <div className="map-canvas-wrap" id="map-help">
                 <CampaignCanvas
                   regions={canvasRegions}
                   fronts={canvasFronts}
+                  routes={canvasRoutes}
                   selectedId={selectedId}
                   selectedFrontId={activeFrontId}
                   bannerColor={campaign.banner.color}
@@ -1668,9 +1856,13 @@ function App() {
                     setActiveFrontId(frontId);
                     setSelectedId(front.targetRegionId);
                   }}
+                  onSelectRoute={(partnerRegionId) => {
+                    setActiveFrontId(null);
+                    setSelectedId(partnerRegionId);
+                  }}
                 />
               </div>
-              <p className="map-note"><strong>Choose your decision.</strong> Click a region or front marker, or use the accessible indexes below to inspect the order. The map remembers your selection while you explore.</p>
+               <p className="map-note"><strong>Choose your decision.</strong> The atlas simplifies at a distance; zoom into a region for its settlement detail, or search the grouped index below.</p>
               <AccessibleRegionIndex
                 regions={campaign.regions}
                 selectedId={selectedId}

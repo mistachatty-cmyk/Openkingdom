@@ -3,6 +3,7 @@ import {
   type PointerEvent,
   type WheelEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -10,6 +11,10 @@ import { Minus, Plus, RotateCcw } from 'lucide-react';
 
 export type CanvasRegion = {
   id: string;
+  chunkId?: string;
+  adjacent: string[];
+  terrain?: 'plains' | 'forest' | 'highland' | 'marsh' | 'coast';
+  landmark?: string;
   name: string;
   kind: 'player' | 'rival' | 'neutral';
   settlement: 'Village' | 'Town' | 'City';
@@ -24,6 +29,14 @@ export type CanvasFront = {
   source: [number, number];
   target: [number, number];
   committedForces: number;
+};
+
+export type CanvasRoute = {
+  id: string;
+  source: [number, number];
+  target: [number, number];
+  partnerRegionId: string;
+  status: 'active' | 'disrupted' | 'blocked' | 'shortage' | 'embargoed' | 'expired';
 };
 
 export type CanvasPalette = {
@@ -41,18 +54,22 @@ export type CanvasPalette = {
 type CampaignCanvasProps = {
   regions: CanvasRegion[];
   fronts: CanvasFront[];
+  routes: CanvasRoute[];
   selectedId: string | null;
   selectedFrontId: string | null;
   bannerColor: string;
   palette: CanvasPalette;
   onSelect: (id: string) => void;
   onSelectFront: (id: string) => void;
+  onSelectRoute: (partnerRegionId: string) => void;
 };
 
 const VIEW_WIDTH = 760;
 const VIEW_HEIGHT = 390;
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 3;
+const WORLD_WIDTH = 2600;
+const WORLD_HEIGHT = 1600;
+const MIN_ZOOM = 0.24;
+const MAX_ZOOM = 2.8;
 const ZOOM_STEP = 0.25;
 const PAN_STEP = 48;
 
@@ -62,17 +79,25 @@ type MapView = {
   y: number;
 };
 
-const STARTING_VIEW: MapView = { scale: MIN_ZOOM, x: 0, y: 0 };
+const STARTING_VIEW: MapView = {
+  scale: MIN_ZOOM,
+  x: (VIEW_WIDTH / MIN_ZOOM - WORLD_WIDTH) / 2,
+  y: (VIEW_HEIGHT / MIN_ZOOM - WORLD_HEIGHT) / 2,
+};
 
 function clampView(view: MapView): MapView {
   const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.scale));
-  const minX = VIEW_WIDTH / scale - VIEW_WIDTH;
-  const minY = VIEW_HEIGHT / scale - VIEW_HEIGHT;
+  const visibleWidth = VIEW_WIDTH / scale;
+  const visibleHeight = VIEW_HEIGHT / scale;
+  const minX = visibleWidth >= WORLD_WIDTH ? (visibleWidth - WORLD_WIDTH) / 2 : visibleWidth - WORLD_WIDTH;
+  const maxX = visibleWidth >= WORLD_WIDTH ? (visibleWidth - WORLD_WIDTH) / 2 : 0;
+  const minY = visibleHeight >= WORLD_HEIGHT ? (visibleHeight - WORLD_HEIGHT) / 2 : visibleHeight - WORLD_HEIGHT;
+  const maxY = visibleHeight >= WORLD_HEIGHT ? (visibleHeight - WORLD_HEIGHT) / 2 : 0;
 
   return {
     scale,
-    x: Math.min(0, Math.max(minX, view.x)),
-    y: Math.min(0, Math.max(minY, view.y)),
+    x: Math.min(maxX, Math.max(minX, view.x)),
+    y: Math.min(maxY, Math.max(minY, view.y)),
   };
 }
 
@@ -121,6 +146,18 @@ function rectanglesOverlap(first: LabelBox, second: LabelBox) {
     first.y < second.y + second.height &&
     first.y + first.height > second.y
   );
+}
+
+function pointToSegmentDistance(
+  point: { x: number; y: number },
+  start: [number, number],
+  end: [number, number],
+) {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - start[0], point.y - start[1]);
+  const projection = Math.max(0, Math.min(1, ((point.x - start[0]) * dx + (point.y - start[1]) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(point.x - (start[0] + projection * dx), point.y - (start[1] + projection * dy));
 }
 
 function wrapLabel(
@@ -174,11 +211,11 @@ function placeLabel(
 
     for (const [offsetX, offsetY] of offsets) {
       const x = Math.min(
-        VIEW_WIDTH - width / 2 - 8,
+        WORLD_WIDTH - width / 2 - 8,
         Math.max(width / 2 + 8, region.label[0] + offsetX),
       );
       const y = Math.min(
-        VIEW_HEIGHT - height / 2 - 8,
+        WORLD_HEIGHT - height / 2 - 8,
         Math.max(height / 2 + 8, region.label[1] + offsetY),
       );
       const box = { x: x - width / 2, y: y - height / 2, width, height };
@@ -223,12 +260,14 @@ function placeLabel(
 export function CampaignCanvas({
   regions,
   fronts,
+  routes,
   selectedId,
   selectedFrontId,
   bannerColor,
   palette,
   onSelect,
   onSelectFront,
+  onSelectRoute,
 }: CampaignCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{
@@ -241,9 +280,61 @@ export function CampaignCanvas({
   const [view, setView] = useState<MapView>(STARTING_VIEW);
   const [isDragging, setIsDragging] = useState(false);
   const [viewAnnouncement, setViewAnnouncement] = useState(
-    'Map view at 100 percent zoom. Drag to pan; use arrow keys to move.',
+    'World map view at 24 percent zoom. Drag to pan; use arrow keys to move.',
   );
+  const [performanceStats, setPerformanceStats] = useState({
+    visible: regions.length,
+    drawMs: 0,
+    frameMs: 0,
+    interactionMs: 0,
+    memory: 'unknown',
+  });
+  const pathCacheRef = useRef(new Map<string, Path2D>());
+  const lastDrawAtRef = useRef<number | null>(null);
+  const statsFrameRef = useRef(0);
   const selectedRegion = regions.find((region) => region.id === selectedId);
+  const regionLookup = useMemo(
+    () => new Map(regions.map((region) => [region.id, region])),
+    [regions],
+  );
+  const spatialIndex = useMemo(() => {
+    const index = new Map<string, CanvasRegion[]>();
+    regions.forEach((region) => {
+      const key = region.chunkId ?? 'chunk-0-0';
+      const bucket = index.get(key) ?? [];
+      bucket.push(region);
+      index.set(key, bucket);
+    });
+    return index;
+  }, [regions]);
+
+  const getVisibleRegions = useMemo(() => (currentView: MapView) => {
+    const left = -currentView.x;
+    const top = -currentView.y;
+    const right = left + VIEW_WIDTH / currentView.scale;
+    const bottom = top + VIEW_HEIGHT / currentView.scale;
+    const firstChunkX = Math.max(0, Math.floor(left / 500) - 1);
+    const lastChunkX = Math.min(Math.floor(WORLD_WIDTH / 500), Math.floor(right / 500) + 1);
+    const firstChunkY = Math.max(0, Math.floor(top / 350) - 1);
+    const lastChunkY = Math.min(Math.floor(WORLD_HEIGHT / 350), Math.floor(bottom / 350) + 1);
+    const visible = new Map<string, CanvasRegion>();
+
+    for (let chunkX = firstChunkX; chunkX <= lastChunkX; chunkX += 1) {
+      for (let chunkY = firstChunkY; chunkY <= lastChunkY; chunkY += 1) {
+        (spatialIndex.get(`chunk-${chunkX}-${chunkY}`) ?? []).forEach((region) => {
+          if (
+            region.label[0] >= left - 240 &&
+            region.label[0] <= right + 240 &&
+            region.label[1] >= top - 180 &&
+            region.label[1] <= bottom + 180
+          ) {
+            visible.set(region.id, region);
+          }
+        });
+      }
+    }
+    return [...visible.values()];
+  }, [regions, spatialIndex]);
 
   const mapPointFromEvent = (event: PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -281,7 +372,7 @@ export function CampaignCanvas({
 
   const resetView = () => {
     setView(STARTING_VIEW);
-    setViewAnnouncement('Map view reset to its starting position at 100 percent zoom.');
+    setViewAnnouncement('World map view reset to its starting position at 24 percent zoom.');
   };
 
   const panBy = (x: number, y: number) => {
@@ -310,6 +401,7 @@ export function CampaignCanvas({
     if (!canvas) return;
 
     const draw = () => {
+      const drawStartedAt = performance.now();
       const bounds = canvas.getBoundingClientRect();
       const pixelRatio = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.floor(bounds.width * pixelRatio));
@@ -330,36 +422,77 @@ export function CampaignCanvas({
       context.fillStyle = palette.water;
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
+      const visibleRegions = getVisibleRegions(view);
+      const isCompact = bounds.width < 600;
+      const detailTier = isCompact
+        ? view.scale < 0.8 ? 'overview' : view.scale < 1.5 ? 'regional' : 'close'
+        : view.scale < 0.55 ? 'overview' : view.scale < 1.05 ? 'regional' : 'close';
+      const visibleBounds = {
+        left: -view.x - 240,
+        right: -view.x + VIEW_WIDTH / view.scale + 240,
+        top: -view.y - 180,
+        bottom: -view.y + VIEW_HEIGHT / view.scale + 180,
+      };
+      const isPointVisible = (point: [number, number]) => (
+        point[0] >= visibleBounds.left &&
+        point[0] <= visibleBounds.right &&
+        point[1] >= visibleBounds.top &&
+        point[1] <= visibleBounds.bottom
+      );
+
       context.save();
       context.scale(view.scale, view.scale);
       context.translate(view.x, view.y);
+
+      // Roads are derived from reciprocal region links so adding a chunk never
+      // requires a second set of hand-maintained drawing coordinates.
       context.strokeStyle = palette.road;
-      context.lineWidth = 2;
-      context.setLineDash([6, 7]);
-      context.globalAlpha = 0.72;
-      context.beginPath();
-      context.moveTo(174, 213);
-      context.bezierCurveTo(235, 182, 263, 200, 326, 249);
-      context.bezierCurveTo(443, 242, 548, 262, 600, 190);
-      context.stroke();
-      context.beginPath();
-      context.moveTo(141, 121);
-      context.bezierCurveTo(224, 142, 240, 108, 278, 122);
-      context.bezierCurveTo(350, 165, 355, 221, 355, 221);
-      context.stroke();
+      context.lineWidth = detailTier === 'overview' ? 5 : 2;
+      context.setLineDash(detailTier === 'overview' ? [] : [6, 7]);
+      context.globalAlpha = 0.52;
+      visibleRegions.forEach((region) => {
+        region.adjacent.forEach((adjacentId) => {
+          if (region.id > adjacentId) return;
+          const adjacent = regionLookup.get(adjacentId);
+          if (!adjacent || !isPointVisible(adjacent.label)) return;
+          context.beginPath();
+          context.moveTo(region.label[0], region.label[1]);
+          context.lineTo(adjacent.label[0], adjacent.label[1]);
+          context.stroke();
+        });
+      });
       context.globalAlpha = 1;
 
+      const routeColors: Record<CanvasRoute['status'], string> = {
+        active: palette.selection,
+        disrupted: palette.rival,
+        blocked: palette.mutedInk,
+        shortage: palette.neutral,
+        embargoed: palette.rival,
+        expired: palette.mutedInk,
+      };
+      routes.forEach((route) => {
+        if (!isPointVisible(route.source) && !isPointVisible(route.target)) return;
+        context.save();
+        context.strokeStyle = routeColors[route.status];
+        context.lineWidth = detailTier === 'overview' ? 3 : 1.5;
+        context.setLineDash(route.status === 'active' ? [2, 5] : [7, 5]);
+        context.globalAlpha = route.status === 'active' ? 0.8 : 0.58;
+        context.beginPath();
+        context.moveTo(route.source[0], route.source[1]);
+        context.lineTo(route.target[0], route.target[1]);
+        context.stroke();
+        context.restore();
+      });
+
       const occupiedLabels: LabelBox[] = [];
-      regions.forEach((region) => {
-        const path = new Path2D(region.path);
+      visibleRegions.forEach((region) => {
+        let path = pathCacheRef.current.get(region.id);
+        if (!path) {
+          path = new Path2D(region.path);
+          pathCacheRef.current.set(region.id, path);
+        }
         const isSelected = region.id === selectedId;
-        const label = placeLabel(context, region, occupiedLabels, view);
-        occupiedLabels.push({
-          x: label.x - label.width / 2,
-          y: label.y - label.height / 2,
-          width: label.width,
-          height: label.height,
-        });
         context.save();
         context.fillStyle =
           region.kind === 'player'
@@ -368,17 +501,33 @@ export function CampaignCanvas({
               ? palette.rival
               : palette.neutral;
         context.strokeStyle = palette.ink;
-        context.lineWidth = 1.5;
-        context.setLineDash([2, 4]);
+        context.lineWidth = isSelected ? 3 : detailTier === 'overview' ? 1 : 1.5;
+        context.setLineDash(detailTier === 'overview' ? [] : [2, 4]);
         if (isSelected) {
           context.shadowColor = palette.selection;
           context.shadowBlur = 10;
-          context.lineWidth = 3;
         }
         context.fill(path);
         context.stroke(path);
         context.restore();
 
+        if (detailTier === 'overview') {
+          context.save();
+          context.fillStyle = region.kind === 'rival' ? palette.rival : region.kind === 'player' ? bannerColor : palette.mutedInk;
+          context.beginPath();
+          context.arc(region.label[0], region.label[1], region.kind === 'player' ? 6 : 3, 0, Math.PI * 2);
+          context.fill();
+          context.restore();
+          return;
+        }
+
+        const label = placeLabel(context, region, occupiedLabels, view);
+        occupiedLabels.push({
+          x: label.x - label.width / 2,
+          y: label.y - label.height / 2,
+          width: label.width,
+          height: label.height,
+        });
         context.save();
         if (label.offsetX !== 0 || label.offsetY !== 0) {
           context.strokeStyle = palette.mutedInk;
@@ -398,13 +547,59 @@ export function CampaignCanvas({
           const lineOffset = (index - (label.lines.length - 1) / 2) * 15;
           context.fillText(line, label.x, label.y + lineOffset);
         });
-        context.fillStyle = palette.mutedInk;
-        context.font = '500 8px "DM Mono", monospace';
-        context.fillText(
-          `${region.settlement.toUpperCase()} · ${region.forces}`,
-          label.x,
-          label.y + (label.lines.length - 1) * 7.5 + 25,
-        );
+        if (detailTier === 'close') {
+          context.fillStyle = palette.mutedInk;
+          context.font = '500 8px "DM Mono", monospace';
+          context.fillText(
+            `${region.settlement.toUpperCase()} · ${region.forces}`,
+            label.x,
+            label.y + (label.lines.length - 1) * 7.5 + 25,
+          );
+          context.save();
+          context.strokeStyle = palette.mutedInk;
+          context.fillStyle = palette.mutedInk;
+          context.globalAlpha = 0.66;
+          context.lineWidth = 1.2;
+          const terrainX = region.label[0] + 22;
+          const terrainY = region.label[1] - 20;
+          if (region.terrain === 'forest') {
+            for (let tree = -1; tree <= 1; tree += 1) {
+              context.beginPath();
+              context.moveTo(terrainX + tree * 6, terrainY + 5);
+              context.lineTo(terrainX + tree * 6 - 4, terrainY - 3);
+              context.lineTo(terrainX + tree * 6 + 4, terrainY - 3);
+              context.closePath();
+              context.stroke();
+            }
+          } else if (region.terrain === 'highland') {
+            context.beginPath();
+            context.moveTo(terrainX - 7, terrainY + 5);
+            context.lineTo(terrainX, terrainY - 5);
+            context.lineTo(terrainX + 7, terrainY + 5);
+            context.stroke();
+          } else if (region.terrain === 'coast') {
+            context.beginPath();
+            context.arc(terrainX, terrainY, 6, 0, Math.PI);
+            context.stroke();
+            context.beginPath();
+            context.arc(terrainX, terrainY + 4, 6, Math.PI, Math.PI * 2);
+            context.stroke();
+          } else if (region.terrain === 'marsh') {
+            context.beginPath();
+            context.moveTo(terrainX - 7, terrainY - 2);
+            context.quadraticCurveTo(terrainX - 2, terrainY + 4, terrainX + 3, terrainY - 2);
+            context.quadraticCurveTo(terrainX + 6, terrainY - 5, terrainX + 8, terrainY);
+            context.stroke();
+          } else {
+            context.beginPath();
+            context.arc(terrainX, terrainY, 4, 0, Math.PI * 2);
+            context.stroke();
+          }
+          if (region.landmark) {
+            context.strokeRect(terrainX + 10, terrainY - 4, 8, 8);
+          }
+          context.restore();
+        }
 
         if (region.kind === 'player') {
           context.fillStyle = bannerColor;
@@ -434,6 +629,7 @@ export function CampaignCanvas({
           (front.source[0] + front.target[0]) / 2,
           (front.source[1] + front.target[1]) / 2,
         ];
+        if (!isPointVisible(marker)) return;
         const isSelected = front.id === selectedFrontId;
         context.save();
         context.strokeStyle = isSelected ? palette.selection : palette.road;
@@ -453,22 +649,43 @@ export function CampaignCanvas({
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.fillText(String(front.committedForces), marker[0], marker[1]);
-        context.fillStyle = palette.ink;
-        context.font = '700 10px Georgia, serif';
-        context.fillText(front.name.slice(0, 22), marker[0], marker[1] - 17);
+        if (detailTier !== 'overview') {
+          context.fillStyle = palette.ink;
+          context.font = '700 10px Georgia, serif';
+          context.fillText(front.name.slice(0, 22), marker[0], marker[1] - 17);
+        }
         context.restore();
       });
-
       context.restore();
+
+      const drawMs = performance.now() - drawStartedAt;
+      const frameMs = lastDrawAtRef.current === null ? 0 : drawStartedAt - lastDrawAtRef.current;
+      lastDrawAtRef.current = drawStartedAt;
+      statsFrameRef.current += 1;
+      if (statsFrameRef.current === 1 || statsFrameRef.current % 6 === 0) {
+        const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+        const heap = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+        const memory = heap && heap.jsHeapSizeLimit > 0
+          ? `${Math.round((heap.usedJSHeapSize / heap.jsHeapSizeLimit) * 100)}% heap`
+          : deviceMemory && deviceMemory <= 2 ? 'tight device' : 'normal';
+        setPerformanceStats((current) => ({
+          ...current,
+          visible: visibleRegions.length,
+          drawMs: Math.round(drawMs * 10) / 10,
+          frameMs: Math.round(frameMs * 10) / 10,
+          memory,
+        }));
+      }
     };
 
     draw();
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [bannerColor, fronts, palette, regions, selectedFrontId, selectedId, view]);
+  }, [bannerColor, fronts, getVisibleRegions, palette, regionLookup, regions, routes, selectedFrontId, selectedId, spatialIndex, view]);
 
   const selectAtPoint = (event: PointerEvent<HTMLCanvasElement>) => {
+    const interactionStartedAt = performance.now();
     const point = mapPointFromEvent(event);
     if (!point) return;
     const canvas = canvasRef.current;
@@ -484,12 +701,23 @@ export function CampaignCanvas({
         const markerY = (front.source[1] + front.target[1]) / 2;
         if (Math.hypot(point.x - markerX, point.y - markerY) <= 22) {
           onSelectFront(front.id);
+          setPerformanceStats((current) => ({ ...current, interactionMs: Math.round((performance.now() - interactionStartedAt) * 10) / 10 }));
           return;
         }
       }
-      for (const region of [...regions].reverse()) {
-        if (context.isPointInPath(new Path2D(region.path), point.x, point.y)) {
+      for (const route of [...routes].reverse()) {
+        if (pointToSegmentDistance(point, route.source, route.target) <= 12) {
+          onSelectRoute(route.partnerRegionId);
+          setPerformanceStats((current) => ({ ...current, interactionMs: Math.round((performance.now() - interactionStartedAt) * 10) / 10 }));
+          return;
+        }
+      }
+      for (const region of [...getVisibleRegions(view)].reverse()) {
+        const path = pathCacheRef.current.get(region.id) ?? new Path2D(region.path);
+        pathCacheRef.current.set(region.id, path);
+        if (context.isPointInPath(path, point.x, point.y)) {
           onSelect(region.id);
+          setPerformanceStats((current) => ({ ...current, interactionMs: Math.round((performance.now() - interactionStartedAt) * 10) / 10 }));
           return;
         }
       }
@@ -657,8 +885,16 @@ export function CampaignCanvas({
         </button>
       </div>
       <p className="map-navigation-help" id="map-navigation-help">
-        Drag to pan · scroll or +/- to zoom · arrows to move
+        Drag to pan · scroll or +/- to zoom · arrows to move · select a route or region
       </p>
+      <div className="map-performance" aria-label="Map performance">
+        <span>World atlas · {regions.length} regions</span>
+        <span>{performanceStats.visible} visible</span>
+        <span>{performanceStats.drawMs} ms draw</span>
+        <span>{performanceStats.frameMs ? `${performanceStats.frameMs} ms frame` : 'frame time —'}</span>
+        <span>{performanceStats.interactionMs ? `${performanceStats.interactionMs} ms select` : 'select latency —'}</span>
+        <span>{performanceStats.memory}</span>
+      </div>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="status-map-view">
         {viewAnnouncement}
       </div>

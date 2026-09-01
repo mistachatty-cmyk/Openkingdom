@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 export type ResourceItem = {
@@ -10,6 +11,7 @@ export type ResourceItem = {
 
 export type RegionIndexItem = {
   id: string;
+  chunkId?: string;
   name: string;
   kind: 'player' | 'rival' | 'neutral';
   settlement: 'Village' | 'Town' | 'City';
@@ -48,6 +50,26 @@ export function AccessibleRegionIndex({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRegions = useMemo(
+    () => regions.filter((region) => !normalizedQuery || region.name.toLowerCase().includes(normalizedQuery) || region.id.includes(normalizedQuery)),
+    [normalizedQuery, regions],
+  );
+  const groupedRegions = useMemo(() => {
+    const groups = new Map<string, RegionIndexItem[]>();
+    filteredRegions.forEach((region) => {
+      const groupKey = region.chunkId ?? 'chunk-0-0';
+      const group = groups.get(groupKey) ?? [];
+      group.push(region);
+      groups.set(groupKey, group);
+    });
+    return [...groups.entries()];
+  }, [filteredRegions]);
+  const visibleGroups = showAll || normalizedQuery ? groupedRegions : groupedRegions.slice(0, 4);
+  const visibleRegionCount = visibleGroups.reduce((count, [, group]) => count + group.length, 0);
+
   return (
     <section className="accessible-map-index" aria-labelledby="accessible-map-title">
       <div className="accessible-index-heading">
@@ -55,25 +77,49 @@ export function AccessibleRegionIndex({
           <div className="panel-kicker">Keyboard map</div>
           <h3 id="accessible-map-title">Accessible region index</h3>
         </div>
-        <span className="mono">{regions.length} regions</span>
+        <span className="mono">{filteredRegions.length} of {regions.length} regions</span>
       </div>
-      <div className="accessible-region-grid">
-        {regions.map((region) => (
-          <button
-            type="button"
-            key={region.id}
-            className={`region-index-button ${selectedId === region.id ? 'is-selected' : ''}`}
-            onClick={() => onSelect(region.id)}
-            aria-pressed={selectedId === region.id}
-            data-testid={`button-select-region-${region.id}`}
-          >
-            <span>{region.name}</span>
-            <small>
-              {getRegionStatus(region.kind)} · {region.settlement} · {region.forces} forces
-            </small>
-          </button>
+      <label className="accessible-index-search">
+        <span className="sr-only">Search regions by name</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search the world by region name"
+          aria-label="Search regions by name"
+          data-testid="input-region-search"
+        />
+      </label>
+      <div className="accessible-region-groups">
+        {visibleGroups.map(([chunkId, group]) => (
+          <div className="accessible-region-group" key={chunkId}>
+            <h4>{chunkId.replace('chunk-', 'Atlas sector ')}</h4>
+            <div className="accessible-region-grid">
+              {group.map((region) => (
+                <button
+                  type="button"
+                  key={region.id}
+                  className={`region-index-button ${selectedId === region.id ? 'is-selected' : ''}`}
+                  onClick={() => onSelect(region.id)}
+                  aria-pressed={selectedId === region.id}
+                  data-testid={`button-select-region-${region.id}`}
+                >
+                  <span>{region.name}</span>
+                  <small>
+                    {getRegionStatus(region.kind)} · {region.settlement} · {region.forces} forces
+                  </small>
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
+      {!filteredRegions.length && <p className="accessible-index-empty">No regions match that search.</p>}
+      {filteredRegions.length > visibleRegionCount && (
+        <button type="button" className="button-quiet accessible-index-more" onClick={() => setShowAll((current) => !current)}>
+          {showAll ? 'Show nearby sectors only' : `Show all ${filteredRegions.length} regions`}
+        </button>
+      )}
     </section>
   );
 }

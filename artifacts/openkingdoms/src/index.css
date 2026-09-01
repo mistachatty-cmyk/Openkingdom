@@ -626,6 +626,24 @@ html[data-theme='meadow'] {
   letter-spacing: .02em;
   pointer-events: none;
 }
+.map-performance {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px 9px;
+  max-width: 62%;
+  color: var(--edition-muted);
+  font-family: var(--app-font-mono);
+  font-size: 7px;
+  line-height: 1.35;
+  text-align: right;
+  pointer-events: none;
+}
+.map-performance span:not(:last-child)::after { content: ' ·'; margin-left: 9px; color: var(--edition-border); }
 .map-canvas:focus-visible {
   outline: 3px solid var(--edition-accent);
   outline-offset: -3px;
@@ -653,6 +671,31 @@ html[data-theme='meadow'] {
   color: var(--edition-muted);
   font-size: 9px;
 }
+.accessible-index-search { display: block; margin-bottom: 12px; }
+.accessible-index-search input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--edition-border) 80%, transparent);
+  background: color-mix(in srgb, var(--edition-panel-strong) 55%, transparent);
+  color: var(--edition-ink);
+  padding: 0 11px;
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  outline: none;
+}
+.accessible-index-search input:focus { border-color: var(--edition-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--edition-accent) 20%, transparent); }
+.accessible-region-groups { display: grid; gap: 14px; }
+.accessible-region-group h4 {
+  color: var(--edition-muted);
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: .12em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+.accessible-index-empty { color: var(--edition-muted); font-size: 11px; margin: 12px 0; }
+.accessible-index-more { margin-top: 12px; width: 100%; }
 .accessible-region-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1483,6 +1526,7 @@ html.reduce-motion .feedback-aura { display: none; }
   .theme-toggle span { display: none; }
   .map-navigation { top: 8px; right: 8px; }
   .map-navigation-help { left: 8px; bottom: 8px; font-size: 7px; }
+  .map-performance { left: 8px; right: 8px; bottom: 28px; max-width: none; justify-content: flex-start; text-align: left; }
   .map-reset-button span { display: none; }
   .topbar { gap: 12px; }
   .turn-control { width: 100%; }
