@@ -17,6 +17,7 @@ export type FrontSummary = {
   committedForces: number;
   targetForces: number;
   projectedDefendingForces: number;
+  allySupport: number;
   supply: 'Supplied' | 'Broken supply';
   travelTurns: number;
   outcome: 'No forces staged' | 'Strong advantage' | 'Uncertain' | 'Outmatched';
@@ -203,7 +204,8 @@ export function FrontDossier({
         <div><dt>Available in source</dt><dd>{front.sourceForces}</dd></div>
         <div><dt>Committed here</dt><dd>{front.committedForces}</dd></div>
         <div><dt>Defending after change</dt><dd>{front.projectedDefendingForces}</dd></div>
-        <div><dt>Defender strength</dt><dd>{front.targetForces}</dd></div>
+              <div><dt>Defender strength</dt><dd>{front.targetForces}</dd></div>
+              <div><dt>Ally support</dt><dd>{front.allySupport ? `+${front.allySupport}` : 'None'}</dd></div>
         <div><dt>Supply status</dt><dd>{front.supply}</dd></div>
         <div><dt>Travel time</dt><dd>{front.travelTurns} turn</dd></div>
       </dl>

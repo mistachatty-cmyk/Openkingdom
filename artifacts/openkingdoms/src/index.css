@@ -1101,7 +1101,8 @@ html.reduce-motion .feedback-aura { display: none; }
   margin: 3px 0 0;
   overflow-wrap: anywhere;
 }
-.front-metrics div:nth-child(5) dd {
+.front-metrics div:nth-child(5) dd,
+.front-metrics div:nth-child(6) dd {
   color: var(--edition-player);
 }
 .front-outcome-badge {
@@ -1137,6 +1138,343 @@ html.reduce-motion .feedback-aura { display: none; }
   padding-left: 9px;
   padding-right: 9px;
 }
+.economy-panel {
+  margin-bottom: 20px;
+  padding: 17px 18px;
+}
+.economy-heading,
+.panel-heading-row,
+.diplomacy-partner-heading,
+.route-status-row,
+.economy-footer {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+.economy-heading h2,
+.panel-heading-row h2 {
+  color: var(--edition-ink);
+  font-family: var(--app-font-serif);
+  font-size: 25px;
+  line-height: .9;
+  margin: 5px 0 0;
+}
+.economy-net,
+.reputation-score,
+.panel-heading-icon {
+  color: var(--edition-primary);
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+}
+.economy-net,
+.reputation-score {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+  padding-top: 7px;
+  text-align: right;
+}
+.panel-heading-icon {
+  color: var(--edition-accent);
+  margin-top: 5px;
+}
+.economy-ledger {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 15px;
+}
+.economy-resource {
+  background: color-mix(in srgb, var(--edition-panel-strong) 64%, transparent);
+  border: 1px solid color-mix(in srgb, var(--edition-border) 76%, transparent);
+  min-width: 0;
+  padding: 10px;
+}
+.economy-resource.is-short {
+  border-color: var(--edition-primary);
+  box-shadow: inset 3px 0 0 var(--edition-primary);
+}
+.economy-resource-name {
+  align-items: center;
+  color: var(--edition-muted);
+  display: flex;
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+  gap: 5px;
+  text-transform: uppercase;
+}
+.economy-resource-name svg { color: var(--edition-accent); }
+.economy-resource strong {
+  color: var(--edition-ink);
+  display: block;
+  font-family: var(--app-font-mono);
+  font-size: 20px;
+  margin-top: 6px;
+}
+.economy-resource small {
+  color: var(--edition-muted);
+  display: block;
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+.economy-footer {
+  border-top: 1px solid color-mix(in srgb, var(--edition-border) 76%, transparent);
+  color: var(--edition-muted);
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.economy-footer span {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+.economy-warning,
+.economy-note,
+.panel-intro,
+.route-explanation,
+.panel-reason {
+  color: var(--edition-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.economy-warning,
+.economy-note {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.economy-warning { color: var(--edition-primary); }
+.trade-panel,
+.diplomacy-panel { min-width: 0; }
+.panel-heading-row { position: relative; z-index: 1; }
+.panel-intro { margin: 15px 0 0; }
+.panel-intro strong { color: var(--edition-ink); }
+.panel-empty {
+  align-items: center;
+  color: var(--edition-muted);
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  gap: 8px;
+  line-height: 1.5;
+  margin: 24px auto 6px;
+  max-width: 230px;
+  text-align: center;
+}
+.panel-empty svg { color: var(--edition-accent); }
+.panel-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+.panel-field > span,
+.panel-field-grid .panel-field > span {
+  color: var(--edition-muted);
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.panel-field select {
+  background: color-mix(in srgb, var(--edition-panel-strong) 72%, transparent);
+  border: 1px solid var(--edition-border);
+  color: var(--edition-ink);
+  min-width: 0;
+  padding: 9px 10px;
+  width: 100%;
+}
+.panel-field-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.route-status-row {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--edition-border) 76%, transparent);
+  color: var(--edition-ink);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  margin-top: 16px;
+  padding-bottom: 10px;
+}
+.route-status {
+  border: 1px solid var(--edition-border);
+  color: var(--edition-muted);
+  font-size: 8px;
+  padding: 5px 6px;
+  text-transform: uppercase;
+}
+.route-status-active { border-color: var(--edition-player); color: var(--edition-player); }
+.route-status-disrupted,
+.route-status-shortage,
+.route-status-embargoed { border-color: var(--edition-primary); color: var(--edition-primary); }
+.route-status-blocked,
+.route-status-expired { border-color: var(--edition-accent); color: var(--edition-accent); }
+.route-metrics {
+  display: grid;
+  gap: 10px 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 14px 0 0;
+}
+.route-metrics div { min-width: 0; }
+.route-metrics dt,
+.subpanel-label {
+  color: var(--edition-muted);
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+.route-metrics dd {
+  color: var(--edition-ink);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+.route-explanation {
+  align-items: flex-start;
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 0;
+}
+.route-explanation.is-warning { color: var(--edition-primary); }
+.panel-wide-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+  margin-top: 15px;
+  width: 100%;
+}
+.panel-reason {
+  margin: 9px 0 0;
+}
+.panel-reason.is-warning { color: var(--edition-primary); }
+.panel-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 14px;
+}
+.panel-action-row .button-quiet { flex: 1 1 130px; }
+.reputation-score { color: var(--edition-accent); }
+.diplomacy-partner-heading {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--edition-border) 76%, transparent);
+  margin-top: 16px;
+  padding-bottom: 11px;
+}
+.diplomacy-partner-heading strong {
+  color: var(--edition-ink);
+  display: block;
+  font-family: var(--app-font-serif);
+  font-size: 21px;
+}
+.diplomacy-partner-heading small {
+  color: var(--edition-muted);
+  display: block;
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  line-height: 1.45;
+  margin-top: 4px;
+}
+.relationship-badge {
+  border: 1px solid var(--edition-border);
+  color: var(--edition-muted);
+  flex: 0 0 auto;
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  padding: 6px 7px;
+  text-transform: uppercase;
+}
+.relationship-neutral { color: var(--edition-muted); }
+.relationship-friendly,
+.relationship-trading { border-color: var(--edition-accent); color: var(--edition-accent); }
+.relationship-allied { border-color: var(--edition-player); color: var(--edition-player); }
+.relationship-hostile,
+.relationship-war { border-color: var(--edition-primary); color: var(--edition-primary); }
+.diplomacy-offers {
+  display: grid;
+  gap: 10px;
+  margin-top: 15px;
+}
+.diplomacy-offer {
+  display: grid;
+  gap: 5px;
+}
+.diplomacy-offer .button-quiet {
+  justify-content: flex-start;
+  min-height: 38px;
+  width: 100%;
+}
+.diplomacy-offer small {
+  color: var(--edition-muted);
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  line-height: 1.4;
+  padding-left: 3px;
+}
+.diplomacy-offer.is-disabled small { color: color-mix(in srgb, var(--edition-muted) 78%, var(--edition-primary)); }
+.treaty-list {
+  border-top: 1px solid color-mix(in srgb, var(--edition-border) 76%, transparent);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.treaty-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 9px;
+}
+.treaty-row > span {
+  align-items: flex-start;
+  color: var(--edition-ink);
+  display: flex;
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+  gap: 5px;
+}
+.treaty-row > span svg { color: var(--edition-player); flex: 0 0 auto; margin-top: 1px; }
+.treaty-row small {
+  color: var(--edition-muted);
+  display: block;
+  font-size: 8px;
+  margin-top: 2px;
+}
+.treaty-break-button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--edition-border);
+  color: var(--edition-muted);
+  display: inline-flex;
+  justify-content: center;
+  min-height: 28px;
+  min-width: 28px;
+}
+.treaty-break-button:hover,
+.embargo-button:hover { border-color: var(--edition-primary); color: var(--edition-primary); }
+.embargo-button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--edition-border) 85%, transparent);
+  color: var(--edition-muted);
+  display: inline-flex;
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  gap: 6px;
+  margin-top: 16px;
+  min-height: 34px;
+  padding: 0 9px;
+  text-transform: uppercase;
+}
+.embargo-button.is-active { border-color: var(--edition-primary); color: var(--edition-primary); }
 
 @media (max-width: 720px) {
   .map-canvas-wrap { height: clamp(260px, 58vw, 350px); }
@@ -1168,6 +1506,8 @@ html.reduce-motion .feedback-aura { display: none; }
   }
   .front-section-heading { flex-direction: column; }
   .front-outcome-badge { max-width: 100%; text-align: left; }
+  .economy-ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .economy-footer { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
 
 @media (max-width: 460px) {
@@ -1191,4 +1531,13 @@ html.reduce-motion .feedback-aura { display: none; }
   .front-index-button em { align-self: flex-start; }
   .front-action-row .button-primary,
   .front-action-row .button-quiet { flex-basis: 100%; }
+  .economy-panel { padding: 14px; }
+  .economy-heading { flex-direction: column; gap: 3px; }
+  .economy-net { padding-top: 0; text-align: left; }
+  .economy-resource { padding: 8px; }
+  .economy-resource strong { font-size: 17px; }
+  .panel-field-grid { grid-template-columns: 1fr; }
+  .diplomacy-partner-heading { align-items: flex-start; flex-direction: column; }
+  .relationship-badge { align-self: flex-start; }
+  .route-status-row { align-items: flex-start; flex-direction: column; }
 }
