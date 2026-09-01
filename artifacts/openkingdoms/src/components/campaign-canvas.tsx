@@ -53,6 +53,7 @@ export type CanvasPalette = {
 
 type CampaignCanvasProps = {
   regions: CanvasRegion[];
+  coastlinePath: string;
   fronts: CanvasFront[];
   routes: CanvasRoute[];
   selectedId: string | null;
@@ -259,6 +260,7 @@ function placeLabel(
 
 export function CampaignCanvas({
   regions,
+  coastlinePath,
   fronts,
   routes,
   selectedId,
@@ -443,6 +445,16 @@ export function CampaignCanvas({
       context.save();
       context.scale(view.scale, view.scale);
       context.translate(view.x, view.y);
+
+      const coastline = new Path2D(coastlinePath);
+      context.fillStyle = palette.land;
+      context.strokeStyle = palette.road;
+      context.lineWidth = detailTier === 'overview' ? 8 : 5;
+      context.globalAlpha = 0.92;
+      context.fill(coastline);
+      context.globalAlpha = 0.72;
+      context.stroke(coastline);
+      context.globalAlpha = 1;
 
       // Roads are derived from reciprocal region links so adding a chunk never
       // requires a second set of hand-maintained drawing coordinates.
@@ -682,7 +694,7 @@ export function CampaignCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [bannerColor, fronts, getVisibleRegions, palette, regionLookup, regions, routes, selectedFrontId, selectedId, spatialIndex, view]);
+  }, [bannerColor, coastlinePath, fronts, getVisibleRegions, palette, regionLookup, regions, routes, selectedFrontId, selectedId, spatialIndex, view]);
 
   const selectAtPoint = (event: PointerEvent<HTMLCanvasElement>) => {
     const interactionStartedAt = performance.now();

@@ -341,38 +341,43 @@ type FrontierDescriptor = {
 };
 
 const frontierDescriptors: FrontierDescriptor[] = [
-  { id: 'north-01', name: 'Rimegate', x: 40, y: 60, kind: 'neutral', settlement: 'Village', forces: 22 },
-  { id: 'north-02', name: 'Candlefen', x: 300, y: 60, kind: 'neutral', settlement: 'Village', forces: 28 },
-  { id: 'north-03', name: 'Frostmere', x: 560, y: 60, kind: 'rival', settlement: 'Town', forces: 54 },
-  { id: 'north-04', name: 'Ashen Crown', x: 820, y: 60, kind: 'rival', settlement: 'Town', forces: 68 },
-  { id: 'north-05', name: 'The Pale Road', x: 1080, y: 60, kind: 'neutral', settlement: 'Village', forces: 31 },
-  { id: 'north-06', name: 'Glimmer Pass', x: 1340, y: 60, kind: 'neutral', settlement: 'Village', forces: 26 },
-  { id: 'north-07', name: 'Old Cairn', x: 1600, y: 60, kind: 'rival', settlement: 'City', forces: 112 },
-  { id: 'north-08', name: 'Starfall', x: 1860, y: 60, kind: 'neutral', settlement: 'Town', forces: 45 },
-  { id: 'north-09', name: 'Windscar', x: 2120, y: 60, kind: 'rival', settlement: 'Town', forces: 72 },
-  { id: 'west-01', name: 'Morrow Glen', x: 40, y: 270, kind: 'neutral', settlement: 'Village', forces: 19 },
-  { id: 'west-02', name: 'Thornfield', x: 40, y: 480, kind: 'rival', settlement: 'Town', forces: 48 },
-  { id: 'west-03', name: 'Greenwake', x: 40, y: 690, kind: 'neutral', settlement: 'Town', forces: 36 },
-  { id: 'west-04', name: 'Foxhollow', x: 40, y: 900, kind: 'rival', settlement: 'Village', forces: 42 },
-  { id: 'west-05', name: 'Low Lanterns', x: 40, y: 1110, kind: 'neutral', settlement: 'Village', forces: 24 },
-  { id: 'east-01', name: 'Copperstrand', x: 2120, y: 270, kind: 'neutral', settlement: 'Village', forces: 27 },
-  { id: 'east-02', name: 'Marrow Coast', x: 2120, y: 480, kind: 'rival', settlement: 'Town', forces: 59 },
-  { id: 'east-03', name: 'Vesper Fields', x: 2120, y: 690, kind: 'neutral', settlement: 'Town', forces: 37 },
-  { id: 'east-04', name: 'Redwater', x: 2120, y: 900, kind: 'rival', settlement: 'Town', forces: 63 },
-  { id: 'east-05', name: 'Far Meridian', x: 2120, y: 1110, kind: 'neutral', settlement: 'Village', forces: 21 },
-  { id: 'south-01', name: 'Hearthplain', x: 40, y: 1320, kind: 'neutral', settlement: 'Village', forces: 25 },
-  { id: 'south-02', name: 'Silverbell', x: 300, y: 1320, kind: 'rival', settlement: 'Town', forces: 57 },
-  { id: 'south-03', name: 'Amberstep', x: 560, y: 1320, kind: 'neutral', settlement: 'Village', forces: 29 },
-  { id: 'south-04', name: 'Southwatch', x: 820, y: 1320, kind: 'rival', settlement: 'Town', forces: 64 },
-  { id: 'south-05', name: 'Dawnmouth', x: 1080, y: 1320, kind: 'neutral', settlement: 'Town', forces: 44 },
-  { id: 'south-06', name: 'Goldmere', x: 1340, y: 1320, kind: 'neutral', settlement: 'Village', forces: 23 },
-  { id: 'south-07', name: 'Brass Orchard', x: 1600, y: 1320, kind: 'rival', settlement: 'City', forces: 98 },
-  { id: 'south-08', name: 'Saltwind', x: 1860, y: 1320, kind: 'neutral', settlement: 'Village', forces: 30 },
-  { id: 'south-09', name: 'The Last Ford', x: 2120, y: 1320, kind: 'rival', settlement: 'Town', forces: 70 },
+  { id: 'north-01', name: 'Rimegate', x: 40, y: 180, kind: 'neutral', settlement: 'Village', forces: 22 },
+  { id: 'north-02', name: 'Candlefen', x: 320, y: 180, kind: 'neutral', settlement: 'Village', forces: 28 },
+  { id: 'north-03', name: 'Frostmere', x: 600, y: 180, kind: 'rival', settlement: 'Town', forces: 54 },
+  { id: 'north-04', name: 'Ashen Crown', x: 880, y: 180, kind: 'rival', settlement: 'Town', forces: 68 },
+  { id: 'north-05', name: 'The Pale Road', x: 1160, y: 180, kind: 'neutral', settlement: 'Village', forces: 31 },
+  { id: 'north-06', name: 'Glimmer Pass', x: 1440, y: 180, kind: 'neutral', settlement: 'Village', forces: 26 },
+  { id: 'north-07', name: 'Old Cairn', x: 1720, y: 180, kind: 'rival', settlement: 'City', forces: 112 },
+  { id: 'north-08', name: 'Starfall', x: 2000, y: 180, kind: 'neutral', settlement: 'Town', forces: 45 },
+  { id: 'north-09', name: 'Windscar', x: 2280, y: 180, kind: 'rival', settlement: 'Town', forces: 72 },
+  { id: 'west-01', name: 'Morrow Glen', x: 40, y: 400, kind: 'neutral', settlement: 'Village', forces: 19 },
+  { id: 'west-02', name: 'Thornfield', x: 40, y: 620, kind: 'rival', settlement: 'Town', forces: 48 },
+  { id: 'west-03', name: 'Greenwake', x: 580, y: 400, kind: 'neutral', settlement: 'Town', forces: 36 },
+  { id: 'west-04', name: 'Foxhollow', x: 580, y: 620, kind: 'rival', settlement: 'Village', forces: 42 },
+  { id: 'west-05', name: 'Low Lanterns', x: 40, y: 840, kind: 'neutral', settlement: 'Village', forces: 24 },
+  { id: 'east-01', name: 'Copperstrand', x: 2280, y: 400, kind: 'neutral', settlement: 'Village', forces: 27 },
+  { id: 'east-02', name: 'Marrow Coast', x: 2280, y: 620, kind: 'rival', settlement: 'Town', forces: 59 },
+  { id: 'east-03', name: 'Vesper Fields', x: 1740, y: 620, kind: 'neutral', settlement: 'Town', forces: 37 },
+  { id: 'east-04', name: 'Redwater', x: 2280, y: 840, kind: 'rival', settlement: 'Town', forces: 63 },
+  { id: 'east-05', name: 'Far Meridian', x: 2280, y: 1060, kind: 'neutral', settlement: 'Village', forces: 21 },
+  { id: 'south-01', name: 'Hearthplain', x: 40, y: 1280, kind: 'neutral', settlement: 'Village', forces: 25 },
+  { id: 'south-02', name: 'Silverbell', x: 320, y: 1280, kind: 'rival', settlement: 'Town', forces: 57 },
+  { id: 'south-03', name: 'Amberstep', x: 600, y: 1280, kind: 'neutral', settlement: 'Village', forces: 29 },
+  { id: 'south-04', name: 'Southwatch', x: 880, y: 1280, kind: 'rival', settlement: 'Town', forces: 64 },
+  { id: 'south-05', name: 'Dawnmouth', x: 1160, y: 1280, kind: 'neutral', settlement: 'Town', forces: 44 },
+  { id: 'south-06', name: 'Goldmere', x: 1440, y: 1280, kind: 'neutral', settlement: 'Village', forces: 23 },
+  { id: 'south-07', name: 'Brass Orchard', x: 1720, y: 1280, kind: 'rival', settlement: 'City', forces: 98 },
+  { id: 'south-08', name: 'Saltwind', x: 2000, y: 1280, kind: 'neutral', settlement: 'Village', forces: 30 },
+  { id: 'south-09', name: 'The Last Ford', x: 2280, y: 1280, kind: 'rival', settlement: 'Town', forces: 70 },
+  { id: 'west-06', name: 'Mossway', x: 580, y: 840, kind: 'neutral', settlement: 'Town', forces: 34 },
+  { id: 'west-07', name: 'Gloam Basin', x: 580, y: 1060, kind: 'rival', settlement: 'Village', forces: 46 },
+  { id: 'west-08', name: 'Wickfen', x: 40, y: 1060, kind: 'neutral', settlement: 'Village', forces: 20 },
+  { id: 'east-06', name: 'Roseward', x: 1740, y: 840, kind: 'neutral', settlement: 'Town', forces: 41 },
+  { id: 'east-07', name: 'Larkspur Vale', x: 1740, y: 1060, kind: 'rival', settlement: 'Village', forces: 52 },
 ];
 
 function frontierPath(x: number, y: number) {
-  return `M${x + 8} ${y + 24} L${x + 64} ${y + 5} L${x + 192} ${y + 12} L${x + 226} ${y + 66} L${x + 203} ${y + 151} L${x + 54} ${y + 163} L${x - 4} ${y + 96} Z`;
+  return `M${x} ${y + 54} L${x + 42} ${y + 8} L${x + 196} ${y} L${x + 286} ${y + 34} L${x + 306} ${y + 116} L${x + 250} ${y + 202} L${x + 72} ${y + 210} L${x - 8} ${y + 148} Z`;
 }
 
 const frontierRegions: Region[] = frontierDescriptors.map((descriptor) => ({
@@ -397,21 +402,34 @@ function frontierNeighbors(region: Region) {
   return frontierDescriptors
     .filter((candidate) => candidate.id !== region.id)
     .filter((candidate) => (
-      (candidate.x === descriptor.x && Math.abs(candidate.y - descriptor.y) <= 220) ||
-      (candidate.y === descriptor.y && Math.abs(candidate.x - descriptor.x) <= 270)
+      (candidate.x === descriptor.x && Math.abs(candidate.y - descriptor.y) <= 240) ||
+      (candidate.y === descriptor.y && Math.abs(candidate.x - descriptor.x) <= 320)
     ))
     .map((candidate) => candidate.id);
 }
 
 const worldLinks: Record<string, string[]> = {
-  aurelian: ['west-03', 'south-04'],
-  bracken: ['north-04'],
-  saltmere: ['south-05'],
-  highvale: ['south-05', 'east-03'],
-  ironwood: ['north-05'],
-  northwatch: ['north-07'],
-  sunfall: ['east-03', 'south-07'],
+  aurelian: ['west-06', 'south-04'],
+  bracken: ['west-04', 'north-04'],
+  saltmere: ['east-06', 'south-05'],
+  highvale: ['east-03', 'south-05'],
+  ironwood: ['north-05', 'west-03'],
+  northwatch: ['north-07', 'east-03'],
+  sunfall: ['east-06', 'south-07'],
 };
+
+const frontierCrossLinks: Record<string, string[]> = {
+  'west-01': ['west-03'],
+  'west-02': ['west-04'],
+  'west-05': ['west-06'],
+  'west-08': ['west-07'],
+  'east-01': ['east-03'],
+  'east-02': ['east-03'],
+  'east-04': ['east-06'],
+  'east-05': ['east-07'],
+};
+
+const continentalCoastlinePath = 'M 120 340 C 260 228 430 174 640 156 C 900 94 1110 122 1300 148 C 1510 106 1770 120 1980 170 C 2220 188 2420 258 2506 408 C 2560 520 2470 640 2500 762 C 2540 930 2470 1080 2510 1200 C 2400 1368 2200 1440 1980 1416 C 1750 1470 1510 1430 1280 1450 C 1040 1480 820 1430 620 1460 C 420 1430 238 1360 136 1220 C 72 1090 132 942 96 820 C 60 682 94 518 120 340 Z';
 
 const worldRegions: Region[] = [
   ...coreRegions.map((region) => ({
@@ -422,6 +440,10 @@ const worldRegions: Region[] = [
     ...region,
     adjacent: [
       ...frontierNeighbors(region),
+      ...(frontierCrossLinks[region.id] ?? []),
+      ...Object.entries(frontierCrossLinks)
+        .filter(([, links]) => links.includes(region.id))
+        .map(([linkedId]) => linkedId),
       ...Object.entries(worldLinks)
         .filter(([, links]) => links.includes(region.id))
         .map(([coreId]) => coreId),
@@ -1840,6 +1862,7 @@ function App() {
               <div className="map-canvas-wrap" id="map-help">
                 <CampaignCanvas
                   regions={canvasRegions}
+                  coastlinePath={continentalCoastlinePath}
                   fronts={canvasFronts}
                   routes={canvasRoutes}
                   selectedId={selectedId}
