@@ -18,6 +18,14 @@ export type CanvasRegion = {
   label: [number, number];
 };
 
+export type CanvasFront = {
+  id: string;
+  name: string;
+  source: [number, number];
+  target: [number, number];
+  committedForces: number;
+};
+
 export type CanvasPalette = {
   water: string;
   land: string;
@@ -32,10 +40,13 @@ export type CanvasPalette = {
 
 type CampaignCanvasProps = {
   regions: CanvasRegion[];
+  fronts: CanvasFront[];
   selectedId: string | null;
+  selectedFrontId: string | null;
   bannerColor: string;
   palette: CanvasPalette;
   onSelect: (id: string) => void;
+  onSelectFront: (id: string) => void;
 };
 
 const VIEW_WIDTH = 760;
@@ -211,10 +222,13 @@ function placeLabel(
 
 export function CampaignCanvas({
   regions,
+  fronts,
   selectedId,
+  selectedFrontId,
   bannerColor,
   palette,
   onSelect,
+  onSelectFront,
 }: CampaignCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{
@@ -415,6 +429,36 @@ export function CampaignCanvas({
         context.restore();
       });
 
+      fronts.forEach((front) => {
+        const marker: [number, number] = [
+          (front.source[0] + front.target[0]) / 2,
+          (front.source[1] + front.target[1]) / 2,
+        ];
+        const isSelected = front.id === selectedFrontId;
+        context.save();
+        context.strokeStyle = isSelected ? palette.selection : palette.road;
+        context.fillStyle = isSelected ? palette.selection : palette.road;
+        context.lineWidth = isSelected ? 3 : 2;
+        context.setLineDash([4, 4]);
+        context.beginPath();
+        context.moveTo(front.source[0], front.source[1]);
+        context.lineTo(front.target[0], front.target[1]);
+        context.stroke();
+        context.setLineDash([]);
+        context.beginPath();
+        context.arc(marker[0], marker[1], isSelected ? 9 : 7, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = palette.water;
+        context.font = '700 8px "DM Mono", monospace';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(String(front.committedForces), marker[0], marker[1]);
+        context.fillStyle = palette.ink;
+        context.font = '700 10px Georgia, serif';
+        context.fillText(front.name.slice(0, 22), marker[0], marker[1] - 17);
+        context.restore();
+      });
+
       context.restore();
     };
 
@@ -422,7 +466,7 @@ export function CampaignCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [bannerColor, palette, regions, selectedId, view]);
+  }, [bannerColor, fronts, palette, regions, selectedFrontId, selectedId, view]);
 
   const selectAtPoint = (event: PointerEvent<HTMLCanvasElement>) => {
     const point = mapPointFromEvent(event);
@@ -435,6 +479,14 @@ export function CampaignCanvas({
     context.save();
     context.setTransform(1, 0, 0, 1, 0, 0);
     try {
+      for (const front of [...fronts].reverse()) {
+        const markerX = (front.source[0] + front.target[0]) / 2;
+        const markerY = (front.source[1] + front.target[1]) / 2;
+        if (Math.hypot(point.x - markerX, point.y - markerY) <= 22) {
+          onSelectFront(front.id);
+          return;
+        }
+      }
       for (const region of [...regions].reverse()) {
         if (context.isPointInPath(new Path2D(region.path), point.x, point.y)) {
           onSelect(region.id);
@@ -552,7 +604,7 @@ export function CampaignCanvas({
         onWheel={handleWheel}
         onKeyDown={handleKeyDown}
         tabIndex={0}
-        aria-label="Interactive campaign map. Use the accessible region index below to select a region."
+        aria-label="Interactive campaign map with front markers. Use the accessible region and front indexes below to inspect and select orders."
         aria-describedby="map-navigation-help"
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown + - 0"
         data-testid="canvas-campaign-map"

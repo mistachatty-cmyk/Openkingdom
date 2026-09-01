@@ -26,6 +26,7 @@ import {
 import {
   CampaignCanvas,
   type CanvasPalette,
+  type CanvasFront,
   type CanvasRegion,
 } from '@/components/campaign-canvas';
 import {
@@ -627,18 +628,46 @@ function App() {
     : [];
   const activeFrontSummary =
     frontSummaries.find((front) => front.id === activeFrontId) ?? selectedTargetFronts[0];
+  const canvasFronts: CanvasFront[] = frontSummaries.flatMap((front) => {
+    const source = regionById(campaign?.regions ?? [], front.sourceRegionId);
+    const target = regionById(campaign?.regions ?? [], front.targetRegionId);
+    if (!source || !target) return [];
+    return [{
+      id: front.id,
+      name: front.name,
+      source: source.label,
+      target: target.label,
+      committedForces: front.committedForces,
+    }];
+  });
   const frontSourceOptions = useMemo<FrontSourceOption[]>(() => {
     if (!campaign || !selectedTarget) return [];
     return campaign.regions
       .filter((region) =>
         region.kind === 'player' &&
         region.adjacent.includes(selectedTarget.id) &&
+        selectedTarget.adjacent.includes(region.id) &&
         !campaign.fronts.some(
           (front) => front.sourceRegionId === region.id && front.targetRegionId === selectedTarget.id,
         ),
       )
       .map((region) => ({ id: region.id, name: region.name, forces: region.forces }));
   }, [campaign, selectedTarget]);
+
+  useEffect(() => {
+    if (!selectedTarget) {
+      setFrontDraftName('');
+      setFrontDraftSourceId('');
+      setFrontDraftAllocation(0);
+      setActiveFrontId(null);
+      return;
+    }
+    const firstSource = frontSourceOptions[0];
+    setFrontDraftName(`${selectedTarget.name} Front`);
+    setFrontDraftSourceId(firstSource?.id ?? '');
+    setFrontDraftAllocation(0);
+    setActiveFrontId(selectedTargetFronts[0]?.id ?? null);
+  }, [selectedId]);
 
   const playFeedbackSound = (tone: FeedbackTone) => {
     if (!soundEnabled || tone === 'general' || typeof window === 'undefined') return;
@@ -704,6 +733,117 @@ function App() {
     setCampaign((current) => (current ? transform(current) : current));
   };
 
+  const createFront = () => {
+    if (!campaign || !selectedTarget) return;
+    const source = regionById(campaign.regions, frontDraftSourceId);
+    if (!source || source.kind !== 'player' || !source.adjacent.includes(selectedTarget.id)) {
+      return announce('Choose a neighboring region under your crown.', true);
+    }
+    const id = `front-${source.id}-${selectedTarget.id}`;
+    if (campaign.fronts.some((front) => front.id === id)) {
+      return announce('That border already has a front. Select it to adjust its order.', true);
+    }
+    const committedForces = Math.max(
+      0,
+      Math.min(source.forces, Math.floor(Number.isFinite(frontDraftAllocation) ? frontDraftAllocation : 0)),
+    );
+    const name = frontDraftName.trim().slice(0, 48) || `${selectedTarget.name} Front`;
+    updateCampaign((current) => ({
+      ...current,
+      regions: current.regions.map((region) =>
+        region.id === source.id
+          ? { ...region, forces: region.forces - committedForces }
+          : region,
+      ),
+      fronts: [
+        ...current.fronts,
+        {
+          id,
+          name,
+          sourceRegionId: source.id,
+          targetRegionId: selectedTarget.id,
+          committedForces,
+          travelTurns: 1,
+          status: 'staged',
+        },
+      ],
+      log: [`${name} established with ${committedForces} soldiers staged.`, ...current.log].slice(0, 4),
+    }));
+    setActiveFrontId(id);
+    announce(
+      committedForces
+        ? `${name} established. ${committedForces} soldiers are ready at the border.`
+        : `${name} established. Stage soldiers when the army is ready.`,
+      false,
+      'build',
+    );
+  };
+
+  const updateFrontAllocation = (frontId: string, desiredForces: number) => {
+    let nextCommitted = 0;
+    let changed = false;
+    updateCampaign((current) => {
+      const front = current.fronts.find((candidate) => candidate.id === frontId);
+      if (!front) return current;
+      const source = regionById(current.regions, front.sourceRegionId);
+      if (!source || source.kind !== 'player') return current;
+      const requested = Number.isFinite(desiredForces) ? Math.floor(desiredForces) : 0;
+      const next = Math.max(0, Math.min(source.forces + front.committedForces, requested));
+      const delta = next - front.committedForces;
+      nextCommitted = next;
+      changed = delta !== 0;
+      if (!delta) return current;
+      return {
+        ...current,
+        regions: current.regions.map((region) =>
+          region.id === source.id ? { ...region, forces: region.forces - delta } : region,
+        ),
+        fronts: current.fronts.map((candidate) =>
+          candidate.id === frontId ? { ...candidate, committedForces: next } : candidate,
+        ),
+      };
+    });
+    if (!changed && desiredForces < 0) announce('A front cannot commit a negative number of soldiers.', true);
+    if (changed) setActiveFrontId(frontId);
+  };
+
+  const recallFront = (frontId: string) => {
+    updateCampaign((current) => {
+      const front = current.fronts.find((candidate) => candidate.id === frontId);
+      if (!front || front.committedForces <= 0) return current;
+      return {
+        ...current,
+        regions: current.regions.map((region) =>
+          region.id === front.sourceRegionId
+            ? { ...region, forces: region.forces + front.committedForces }
+            : region,
+        ),
+        fronts: current.fronts.map((candidate) =>
+          candidate.id === frontId ? { ...candidate, committedForces: 0 } : candidate,
+        ),
+        log: [`Forces recalled from ${front.name}.`, ...current.log].slice(0, 4),
+      };
+    });
+    announce('The staged forces have returned to their source region.', false, 'general');
+  };
+
+  const cancelFront = (frontId: string) => {
+    const front = campaign?.fronts.find((candidate) => candidate.id === frontId);
+    if (!front) return;
+    updateCampaign((current) => ({
+      ...current,
+      regions: current.regions.map((region) =>
+        region.id === front.sourceRegionId
+          ? { ...region, forces: region.forces + front.committedForces }
+          : region,
+      ),
+      fronts: current.fronts.filter((candidate) => candidate.id !== frontId),
+      log: [`${front.name} was cancelled; soldiers returned to ${regionById(current.regions, front.sourceRegionId)?.name ?? 'the border'}.`, ...current.log].slice(0, 4),
+    }));
+    setActiveFrontId(null);
+    announce(`${front.name} cancelled. Its soldiers are back on defense.`, false, 'general');
+  };
+
   const buildBarracks = () => {
     if (!campaign || !selected || selected.kind !== 'player') return;
     if (selected.barracks) return announce('A barracks already stands here.', true);
@@ -757,27 +897,55 @@ function App() {
     announce(`${bonus} new forces answer the call at ${selected.name}.`, false, 'recruit');
   };
 
-  const launchAttack = () => {
-    if (!campaign || !selected || selected.kind !== 'rival') return;
-    const home = campaign.regions.find((region) => region.kind === 'player' && region.adjacent.includes(selected.id));
-    if (!home) return announce('This rival is beyond your current borders.', true);
-    const available = home.forces;
-    if (available < selected.forces + 12) return announce('Your army needs a larger margin before marching here.', true);
-    const won = available > selected.forces;
-    if (!won) return announce(`${selected.name} repelled the first charge. Recruit more forces.`, true);
+  const attackFront = (frontId: string) => {
+    const front = campaign?.fronts.find((candidate) => candidate.id === frontId);
+    if (!campaign || !front || !front.committedForces) {
+      return announce('Stage soldiers at a front before committing an attack.', true);
+    }
+    const source = regionById(campaign.regions, front.sourceRegionId);
+    const target = regionById(campaign.regions, front.targetRegionId);
+    if (!source || !target || source.kind !== 'player' || target.kind === 'player') {
+      return announce('This front no longer has a valid border.', true);
+    }
+    const won = front.committedForces > target.forces;
+    const casualties = won
+      ? Math.min(front.committedForces - 1, Math.ceil(target.forces * .42))
+      : front.committedForces - Math.floor(front.committedForces / 3);
+    const survivors = front.committedForces - casualties;
+    const retreating = won ? 0 : front.committedForces - casualties;
+
     updateCampaign((current) => ({
       ...current,
-      forces: current.forces - Math.ceil(selected.forces * .42),
-      regions: current.regions.map((region) =>
-        region.id === selected.id
-          ? { ...region, kind: 'player', forces: Math.max(14, Math.floor(home.forces * .58)), settlement: 'Village', barracks: false }
-          : region.id === home.id
-            ? { ...region, forces: Math.max(12, Math.floor(home.forces * .58)) }
-            : region,
-      ),
-      log: [`Victory at ${selected.name}; the border moves east.`, ...current.log].slice(0, 4),
+      forces: Math.max(0, current.forces - casualties),
+      regions: current.regions.flatMap((region) => {
+        if (region.id === front.targetRegionId && won) {
+          return [{
+            ...region,
+            kind: 'player' as const,
+            forces: Math.max(1, survivors),
+            settlement: 'Village' as const,
+            barracks: false,
+          }];
+        }
+        if (region.id === front.sourceRegionId && !won) {
+          return [{ ...region, forces: region.forces + retreating }];
+        }
+        return [region];
+      }),
+      fronts: current.fronts.filter((candidate) => candidate.id !== frontId),
+      log: [
+        won
+          ? `Victory at ${target.name}; ${survivors} soldiers hold the new border.`
+          : `${target.name} repelled the attack; ${retreating} soldiers returned to ${source.name}.`,
+        ...current.log,
+      ].slice(0, 4),
     }));
-    announce(`Victory. ${selected.name} now bears your standard.`, false, 'victory');
+    setActiveFrontId(null);
+    if (won) {
+      announce(`Victory. ${target.name} now bears your standard.`, false, 'victory');
+    } else {
+      announce(`${target.name} held the line. ${retreating} soldiers retreated.`, true, 'error');
+    }
   };
 
   const advanceTurn = () => {
@@ -923,21 +1091,54 @@ function App() {
               <div className="map-canvas-wrap" id="map-help">
                 <CampaignCanvas
                   regions={canvasRegions}
+                  fronts={canvasFronts}
                   selectedId={selectedId}
+                  selectedFrontId={activeFrontId}
                   bannerColor={campaign.banner.color}
                   palette={canvasPalette}
-                  onSelect={setSelectedId}
+                  onSelect={(id) => {
+                    setActiveFrontId(null);
+                    setSelectedId(id);
+                  }}
+                  onSelectFront={(frontId) => {
+                    const front = frontSummaries.find((candidate) => candidate.id === frontId);
+                    if (!front) return;
+                    setActiveFrontId(frontId);
+                    setSelectedId(front.targetRegionId);
+                  }}
                 />
               </div>
-              <p className="map-note"><strong>Choose your decision.</strong> Click a region or use the accessible index below to inspect its claim. The map remembers your selection while you explore.</p>
+              <p className="map-note"><strong>Choose your decision.</strong> Click a region or front marker, or use the accessible indexes below to inspect the order. The map remembers your selection while you explore.</p>
               <AccessibleRegionIndex
                 regions={campaign.regions}
                 selectedId={selectedId}
-                onSelect={setSelectedId}
+                onSelect={(id) => {
+                  setActiveFrontId(null);
+                  setSelectedId(id);
+                }}
+              />
+              <FrontIndex
+                fronts={frontSummaries}
+                selectedFrontId={activeFrontId}
+                onSelect={(front) => {
+                  setActiveFrontId(front.id);
+                  setSelectedId(front.targetRegionId);
+                }}
               />
             </section>
 
             <div className="right-stack">
+              {activeFrontSummary && (
+                <FrontDossier
+                  front={activeFrontSummary}
+                  allocation={activeFrontSummary.committedForces}
+                  maxAllocation={activeFrontSummary.sourceForces + activeFrontSummary.committedForces}
+                  onAllocationChange={(value) => updateFrontAllocation(activeFrontSummary.id, value)}
+                  onRecall={() => recallFront(activeFrontSummary.id)}
+                  onCancel={() => cancelFront(activeFrontSummary.id)}
+                  onAttack={() => attackFront(activeFrontSummary.id)}
+                />
+              )}
               <section className="panel selection-panel">
                 {selected ? (
                   <>
@@ -958,10 +1159,31 @@ function App() {
                         <button className="button-primary action-button" onClick={recruitForces} disabled={campaign.gold < 25 || campaign.food < 10} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">25 gold · 10 food</span></button>
                       </div>
                     ) : (
-                      <div className="action-stack">
-                        <button className="button-primary action-button" onClick={launchAttack} disabled={!selected.adjacent.some((id) => playerRegions.some((region) => region.id === id)) || (selected.adjacent.map((id) => regionById(campaign.regions, id)).find((region) => region?.kind === 'player')?.forces ?? 0) < selected.forces + 12} data-testid="button-launch-attack"><span><Swords size={14} /> Launch attack</span><span className="action-cost">Requires border army</span></button>
-                        <div className="attack-hint">A neighboring army must hold enough forces to survive the march.</div>
-                      </div>
+                      <>
+                        {frontSourceOptions.length ? (
+                          <FrontPlanner
+                            targetName={selected.name}
+                            name={frontDraftName}
+                            sourceOptions={frontSourceOptions}
+                            sourceId={frontDraftSourceId}
+                            allocation={frontDraftAllocation}
+                            onNameChange={setFrontDraftName}
+                            onSourceChange={(sourceId) => {
+                              setFrontDraftSourceId(sourceId);
+                              const source = frontSourceOptions.find((option) => option.id === sourceId);
+                              setFrontDraftAllocation(Math.min(frontDraftAllocation, source?.forces ?? 0));
+                            }}
+                            onAllocationChange={setFrontDraftAllocation}
+                            onCreate={createFront}
+                          />
+                        ) : (
+                          <p className="front-unavailable">
+                            {selectedTargetFronts.length
+                              ? 'Every neighboring region already has a front here. Select one above to adjust its order.'
+                              : 'This border has no neighboring region under your crown.'}
+                          </p>
+                        )}
+                      </>
                     )}
                   </>
                 ) : <div className="empty-selection"><Mountain size={26} /><h3>No region selected</h3><p>Choose a shape on the campaign map to read its dossier.</p></div>}
@@ -987,7 +1209,7 @@ function App() {
             <div className="guide-header"><div><div className="panel-kicker">A primer for sovereigns</div><h2>Field guide</h2></div><button ref={guideCloseRef} className="close-button" onClick={() => setGuideOpen(false)} aria-label="Close guide" data-testid="button-close-guide"><X size={20} /></button></div>
             <div className="guide-section"><h3>Read the map</h3><p>Every region is a decision waiting to be made. Green lands answer to your crown; red lands are rivals; gold lands are still persuadable.</p></div>
             <div className="guide-section"><h3>Grow your realm</h3><ul className="guide-list"><li><Coins size={14} /> <span>Advance a turn to gather gold and food from every region you hold.</span></li><li><Hammer size={14} /> <span>Barracks cost 80 gold and make each recruitment call worth 16 soldiers instead of 10.</span></li><li><Landmark size={14} /> <span>Upgrade villages into towns and towns into cities. Each charter costs more than the last.</span></li></ul></div>
-            <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival beside your territory. If your border army has a margin of 12 soldiers over its defenders, the attack button will become available.</p></div>
+             <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival or neutral border to name a front, choose its source region, and stage an exact number of soldiers. Review the projected strength before committing the attack.</p></div>
             <div className="guide-section"><h3>Remember</h3><p>There is no perfect opening. The chronicle saves to this browser after every decision, so you may return whenever the map calls.</p></div>
           </aside>
         </div>

@@ -89,6 +89,7 @@ export function FrontPlanner({
 }) {
   const selectedSource = sourceOptions.find((source) => source.id === sourceId);
   const maxAllocation = selectedSource?.forces ?? 0;
+  const safeAllocation = Number.isFinite(allocation) ? Math.max(0, Math.min(allocation, maxAllocation)) : 0;
 
   return (
     <section className="front-planner" aria-labelledby="front-planner-title">
@@ -127,7 +128,7 @@ export function FrontPlanner({
       <div className="front-allocation">
         <div className="front-allocation-heading">
           <label htmlFor="new-front-forces">Soldiers to stage</label>
-          <output htmlFor="new-front-forces">{allocation}</output>
+          <output htmlFor="new-front-forces" aria-live="polite">{safeAllocation}</output>
         </div>
         <input
           id="new-front-forces"
@@ -135,7 +136,7 @@ export function FrontPlanner({
           min={0}
           max={maxAllocation}
           step={1}
-          value={Math.min(allocation, maxAllocation)}
+          value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
           disabled={!sourceOptions.length}
           aria-label="Soldiers to stage at this front"
@@ -147,7 +148,7 @@ export function FrontPlanner({
           min={0}
           max={maxAllocation}
           step={1}
-          value={Math.min(allocation, maxAllocation)}
+          value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
           disabled={!sourceOptions.length}
           aria-label="Exact soldiers to stage"
@@ -184,6 +185,8 @@ export function FrontDossier({
   onCancel: () => void;
   onAttack: () => void;
 }) {
+  const safeAllocation = Number.isFinite(allocation) ? Math.max(0, Math.min(allocation, maxAllocation)) : 0;
+
   return (
     <section className="front-dossier" aria-labelledby="front-dossier-title">
       <div className="front-section-heading">
@@ -207,7 +210,7 @@ export function FrontDossier({
       <div className="front-allocation">
         <div className="front-allocation-heading">
           <label htmlFor={`front-forces-${front.id}`}>Projected attack strength</label>
-          <output htmlFor={`front-forces-${front.id}`}>{allocation}</output>
+          <output htmlFor={`front-forces-${front.id}`} aria-live="polite">{safeAllocation}</output>
         </div>
         <input
           id={`front-forces-${front.id}`}
@@ -215,7 +218,7 @@ export function FrontDossier({
           min={0}
           max={maxAllocation}
           step={1}
-          value={Math.min(allocation, maxAllocation)}
+          value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
           aria-label={`Projected attack strength for ${front.name}`}
           data-testid={`range-front-forces-${front.id}`}
@@ -226,7 +229,7 @@ export function FrontDossier({
           min={0}
           max={maxAllocation}
           step={1}
-          value={Math.min(allocation, maxAllocation)}
+          value={safeAllocation}
           onChange={(event) => onAllocationChange(Number(event.target.value))}
           aria-label={`Exact committed soldiers for ${front.name}`}
           data-testid={`input-front-forces-${front.id}`}
@@ -234,9 +237,9 @@ export function FrontDossier({
       </div>
       <p className="front-preview">
         {front.outcome === 'Strong advantage'
-          ? `Your ${allocation} soldiers should break the ${front.targetName} line.`
+          ? `Your ${safeAllocation} soldiers should break the ${front.targetName} line.`
           : front.outcome === 'Uncertain'
-            ? `The line may hold. Add soldiers for a stronger advantage over ${front.targetName}.`
+          ? `The line may hold. Add soldiers for a stronger advantage over ${front.targetName}.`
             : front.outcome === 'Outmatched'
               ? `${front.targetName} has more defenders than this front can currently field.`
               : 'Stage soldiers to preview the outcome before committing the attack.'}
