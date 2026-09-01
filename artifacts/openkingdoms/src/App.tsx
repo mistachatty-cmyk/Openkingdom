@@ -9,6 +9,7 @@ import {
   Coins,
   Crown,
   Flag,
+  Handshake,
   Hammer,
   Landmark,
   Menu,
@@ -16,6 +17,7 @@ import {
   Minus,
   Mountain,
   Palette,
+  Route,
   Swords,
   Sun,
   Users,
@@ -56,6 +58,17 @@ import {
   type TradeRouteView,
   type TreatyKind,
 } from '@/components/economy-diplomacy-panels';
+import {
+  ExpansionPackControl,
+  ExpansionPackSelector,
+} from '@/components/expansion-pack-selector';
+import {
+  ALL_EXPANSIONS,
+  BASELINE_EXPANSIONS,
+  isExpansionEnabled,
+  normalizeExpansionSelection,
+  type ExpansionSelection,
+} from '@/expansion-packs';
 
 type Banner = { name: string; color: string; secondary: string };
 type RegionKind = 'player' | 'rival' | 'neutral';
@@ -104,9 +117,17 @@ type TradeRoute = {
   risk: number;
   status: TradeRouteStatus;
 };
+type DiplomaticPosture = 'conciliatory' | 'balanced' | 'assertive';
+type DiplomacyState = {
+  posture: DiplomaticPosture;
+  influence: number;
+  envoyCooldowns: Record<string, number>;
+};
 type Campaign = {
   edition: 'Canvas';
   worldVersion: 2;
+  featureVersion: 1;
+  expansions: ExpansionSelection;
   nation: string;
   banner: Banner;
   turn: number;
@@ -122,6 +143,7 @@ type Campaign = {
   reputation: number;
   militaryAid: number;
   embargoes: string[];
+  diplomacy: DiplomacyState;
   log: string[];
 };
 
@@ -489,6 +511,31 @@ function isTradeRouteStatus(value: unknown): value is TradeRouteStatus {
   return value === 'active' || value === 'disrupted' || value === 'blocked' || value === 'shortage' || value === 'embargoed' || value === 'expired';
 }
 
+function isDiplomaticPosture(value: unknown): value is DiplomaticPosture {
+  return value === 'conciliatory' || value === 'balanced' || value === 'assertive';
+}
+
+function defaultDiplomacy(): DiplomacyState {
+  return { posture: 'balanced', influence: 20, envoyCooldowns: {} };
+}
+
+function normalizeDiplomacy(value: unknown): DiplomacyState {
+  if (!value || typeof value !== 'object') return defaultDiplomacy();
+  const candidate = value as Partial<DiplomacyState>;
+  const cooldowns = candidate.envoyCooldowns && typeof candidate.envoyCooldowns === 'object'
+    ? Object.fromEntries(
+      Object.entries(candidate.envoyCooldowns)
+        .filter(([id, turns]) => typeof id === 'string' && typeof turns === 'number' && Number.isFinite(turns) && turns > 0)
+        .map(([id, turns]) => [id, Math.min(6, Math.floor(turns as number))]),
+    )
+    : {};
+  return {
+    posture: isDiplomaticPosture(candidate.posture) ? candidate.posture : 'balanced',
+    influence: typeof candidate.influence === 'number' ? Math.max(0, Math.min(100, Math.floor(candidate.influence))) : 20,
+    envoyCooldowns: cooldowns,
+  };
+}
+
 function settlementOutputMultiplier(settlement: Settlement) {
   return settlement === 'Village' ? 1 : settlement === 'Town' ? 1.35 : 1.8;
 }
@@ -538,9 +585,9 @@ function routeCondition(campaign: Campaign, route: TradeRoute) {
   const partner = regionById(campaign.regions, route.partnerRegionId);
   const relationship = campaign.relationships[route.partnerRegionId] ?? 'neutral';
   if (route.remainingTurns <= 0) return { status: 'expired' as const, reason: 'The charter has expired. Renew it to reopen the road.' };
-  if (campaign.embargoes.includes(route.partnerRegionId)) return { status: 'embargoed' as const, reason: 'An embargo is blocking this exchange until it is lifted.' };
+  if (isExpansionEnabled(campaign.expansions, 'diplomacy') && campaign.embargoes.includes(route.partnerRegionId)) return { status: 'embargoed' as const, reason: 'An embargo is blocking this exchange until it is lifted.' };
   if (!hasSharedBorder(campaign.regions, route.sourceRegionId, route.partnerRegionId)) return { status: 'blocked' as const, reason: 'The source and partner no longer share an open border.' };
-  if (relationship === 'war' || relationship === 'hostile') return { status: 'disrupted' as const, reason: 'Hostilities have closed the crossing and interrupted the route.' };
+  if (isExpansionEnabled(campaign.expansions, 'diplomacy') && (relationship === 'war' || relationship === 'hostile')) return { status: 'disrupted' as const, reason: 'Hostilities have closed the crossing and interrupted the route.' };
   if ((campaign.resources[route.exportResource] ?? 0) < 2) return { status: 'shortage' as const, reason: `The stores lack ${route.exportResource} for this convoy.` };
   return { status: 'active' as const, reason: `The road to ${partner?.name ?? 'your partner'} is open and earning its charter.` };
 }
@@ -561,10 +608,28 @@ function treatyDuration(kind: TreatyKind) {
   return kind === 'trade' ? 6 : kind === 'non-aggression' ? 4 : kind === 'defensive-alliance' ? 6 : kind === 'military-aid' ? 3 : 3;
 }
 
-function makeNewCampaign(nation: string, banner: Banner): Campaign {
+function treatyInfluenceCost(kind: TreatyKind) {
+  return kind === 'trade' ? 4 : kind === 'non-aggression' ? 6 : kind === 'defensive-alliance' ? 12 : kind === 'military-aid' ? 8 : 4;
+}
+
+function postureLabel(posture: DiplomaticPosture) {
+  return posture === 'conciliatory' ? 'Conciliatory' : posture === 'assertive' ? 'Assertive' : 'Balanced';
+}
+
+function postureDescription(posture: DiplomaticPosture) {
+  return posture === 'conciliatory'
+    ? 'Trust grows faster, but rivals read your borders as patient.'
+    : posture === 'assertive'
+      ? 'Your court signals a firmer edge, but envoy work costs more influence.'
+      : 'A steady court with no special diplomatic tilt.';
+}
+
+function makeNewCampaign(nation: string, banner: Banner, expansions: ExpansionSelection): Campaign {
   return {
     edition: 'Canvas',
     worldVersion: 2,
+    featureVersion: 1,
+    expansions: { ...expansions },
     nation: nation.trim() || 'The Unnamed Crown',
     banner,
     turn: 1,
@@ -580,6 +645,7 @@ function makeNewCampaign(nation: string, banner: Banner): Campaign {
     reputation: 50,
     militaryAid: 0,
     embargoes: [],
+    diplomacy: defaultDiplomacy(),
     log: ['The first standard was raised at Aurelian Reach.'],
   };
 }
@@ -597,6 +663,8 @@ function readCampaign(): Campaign | null {
       return null;
     }
 
+    const hasExpansionState = Boolean(saved.expansions && typeof saved.expansions === 'object');
+    const expansions = normalizeExpansionSelection(saved.expansions, hasExpansionState ? BASELINE_EXPANSIONS : ALL_EXPANSIONS);
     const savedRegions = saved.regions as Partial<Region>[];
     const regions = worldRegions.map((base) => {
       const savedRegion = savedRegions.find((region) => region.id === base.id);
@@ -735,6 +803,8 @@ function readCampaign(): Campaign | null {
     return {
       edition: 'Canvas',
       worldVersion: 2,
+      featureVersion: 1,
+      expansions,
       nation: saved.nation.slice(0, 28),
       banner:
         saved.banner &&
@@ -761,6 +831,7 @@ function readCampaign(): Campaign | null {
       embargoes: Array.isArray(saved.embargoes)
         ? saved.embargoes.filter((id): id is string => typeof id === 'string' && regions.some((region) => region.id === id && region.kind !== 'player'))
         : [],
+      diplomacy: normalizeDiplomacy(saved.diplomacy),
       log: Array.isArray(saved.log)
         ? saved.log.filter((entry): entry is string => typeof entry === 'string').slice(0, 4)
         : ['The first standard was raised at Aurelian Reach.'],
@@ -931,6 +1002,7 @@ function App() {
   const [campaign, setCampaign] = useState<Campaign | null>(() => readCampaign());
   const [nationName, setNationName] = useState('');
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [newExpansions, setNewExpansions] = useState<ExpansionSelection>({ ...BASELINE_EXPANSIONS });
   const [selectedId, setSelectedId] = useState<string | null>('aurelian');
   const [guideOpen, setGuideOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -940,6 +1012,7 @@ function App() {
   const [soundEnabled, setSoundEnabled] = useState(() => readSoundEnabled());
   const [feedbackLevel, setFeedbackLevel] = useState<FeedbackLevel>(() => readFeedbackLevel());
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [systemsOpen, setSystemsOpen] = useState(false);
   const [activeFrontId, setActiveFrontId] = useState<string | null>(null);
   const [frontDraftName, setFrontDraftName] = useState('');
   const [frontDraftSourceId, setFrontDraftSourceId] = useState('');
@@ -1001,6 +1074,8 @@ function App() {
   const objectiveProgress = Math.min(100, Math.round((playerRegions.length / 3) * 100));
   const canvasRegions: CanvasRegion[] = campaign?.regions ?? [];
   const canvasPalette = themePresets[theme].canvas;
+  const diplomacyEnabled = campaign ? isExpansionEnabled(campaign.expansions, 'diplomacy') : false;
+  const commerceEnabled = campaign ? isExpansionEnabled(campaign.expansions, 'commerce') : false;
   const frontSummaries = useMemo<FrontSummary[]>(() => {
     if (!campaign) return [];
     return campaign.fronts.flatMap((front) => {
@@ -1008,7 +1083,7 @@ function App() {
       const target = regionById(campaign.regions, front.targetRegionId);
       if (!source || !target) return [];
       const projectedDefendingForces = source.forces + front.committedForces;
-      const allySupport = campaign.militaryAid > 0 && campaign.treaties.some((treaty) =>
+       const allySupport = diplomacyEnabled && campaign.militaryAid > 0 && campaign.treaties.some((treaty) =>
         treaty.kind === 'defensive-alliance' &&
         treaty.partnerRegionId !== target.id &&
         treaty.startedTurn + treaty.duration > campaign.turn &&
@@ -1040,7 +1115,7 @@ function App() {
         outcome,
       }];
     });
-  }, [campaign]);
+  }, [campaign, diplomacyEnabled]);
   const selectedTarget = selected && selected.kind !== 'player' ? selected : undefined;
   const selectedTargetFronts = selectedTarget
     ? frontSummaries.filter((front) => front.targetRegionId === selectedTarget.id)
@@ -1088,10 +1163,12 @@ function App() {
       .map((region) => ({ id: region.id, name: region.name, forces: region.forces }));
   }, [campaign, selectedTarget]);
 
-  const economy = useMemo(() => (campaign ? realmEconomy(campaign.regions) : { production: emptyLedger(), consumption: emptyLedger() }), [campaign?.regions]);
-  const economyShortages = RESOURCE_TYPES.filter((resource) => (campaign?.resources[resource] ?? 0) < economy.consumption[resource]);
+  const economy = useMemo(() => (campaign && commerceEnabled ? realmEconomy(campaign.regions) : { production: emptyLedger(), consumption: emptyLedger() }), [campaign?.regions, commerceEnabled]);
+  const economyShortages = commerceEnabled
+    ? RESOURCE_TYPES.filter((resource) => (campaign?.resources[resource] ?? 0) < economy.consumption[resource])
+    : [];
   const routeViews = useMemo<TradeRouteView[]>(() => {
-    if (!campaign) return [];
+    if (!campaign || !commerceEnabled) return [];
     return campaign.tradeRoutes.flatMap((route) => {
       const partner = regionById(campaign.regions, route.partnerRegionId);
       const source = regionById(campaign.regions, route.sourceRegionId);
@@ -1112,7 +1189,7 @@ function App() {
         statusReason: condition.reason,
       }];
     });
-  }, [campaign]);
+  }, [campaign, commerceEnabled]);
   const tradeIncome = routeViews.filter((route) => route.status === 'active').reduce((total, route) => total + route.income, 0);
   const tradeUpkeep = routeViews.filter((route) => route.status === 'active').reduce((total, route) => total + route.upkeep, 0);
   const selectedTradeRoute = selectedTarget
@@ -1125,8 +1202,11 @@ function App() {
       .map((region) => ({ id: region.id, name: region.name, resources: [...RESOURCE_TYPES] }));
   }, [campaign, selectedTarget]);
   const selectedPartner = useMemo<DiplomacyPartnerView | null>(() => {
-    if (!campaign || !selectedTarget) return null;
+    if (!campaign || !selectedTarget || !diplomacyEnabled) return null;
     const relationship = campaign.relationships[selectedTarget.id] ?? 'neutral';
+    const posture = campaign.diplomacy.posture;
+    const influence = campaign.diplomacy.influence;
+    const envoyCooldown = campaign.diplomacy.envoyCooldowns[selectedTarget.id] ?? 0;
     const treaties = campaign.treaties
       .filter((treaty) => treaty.partnerRegionId === selectedTarget.id)
       .map((treaty) => ({
@@ -1139,13 +1219,15 @@ function App() {
     const hostile = relationship === 'hostile' || relationship === 'war';
     const friendlyEnough = relationship === 'friendly' || relationship === 'trading' || relationship === 'allied';
     const sharedBorder = tradeSourceOptions.length > 0;
+    const envoyInfluenceCost = posture === 'assertive' ? 8 : 5;
+    const canAfford = (kind: TreatyKind) => influence >= treatyInfluenceCost(kind);
     return {
       id: selectedTarget.id,
       name: selectedTarget.name,
       relationship,
       relationshipReason:
         relationship === 'neutral'
-          ? 'No formal ties; the border is watching.'
+          ? `No formal ties; the border is watching. ${postureDescription(posture)}`
           : relationship === 'friendly'
             ? 'An envoy has opened a cordial channel.'
             : relationship === 'trading'
@@ -1154,60 +1236,76 @@ function App() {
                 ? 'A sworn ally expects support in return.'
                 : relationship === 'hostile'
                   ? 'Recent insults and broken promises have hardened the court.'
-                  : 'Open war has closed the diplomatic channel.',
+          : `Open war has closed the diplomatic channel. ${postureDescription(posture)}`,
       sharedBorder,
       embargoed: campaign.embargoes.includes(selectedTarget.id),
       treaties,
       route: selectedTradeRoute,
+      posture,
+      influence,
+      envoyCooldown,
       offers: {
         envoy: {
-          enabled: (relationship === 'neutral' || relationship === 'hostile') && campaign.gold >= 20,
-          reason: relationship === 'hostile' ? 'Costs 20 gold and offers a path back from hostility.' : relationship === 'neutral' ? 'Costs 20 gold and opens a friendly channel.' : 'The relationship is already beyond a first introduction.',
+          enabled: (relationship === 'neutral' || relationship === 'hostile') && campaign.gold >= 20 && envoyCooldown === 0 && influence >= envoyInfluenceCost,
+          reason: envoyCooldown > 0
+            ? `The envoy office is cooling down for ${envoyCooldown} more turn${envoyCooldown === 1 ? '' : 's'}.`
+            : influence < envoyInfluenceCost
+              ? `Needs ${envoyInfluenceCost} influence; the court has ${influence}.`
+              : relationship === 'hostile'
+                ? `Costs 20 gold and ${envoyInfluenceCost} influence; offers a path back from hostility.`
+                : relationship === 'neutral'
+                  ? `Costs 20 gold and ${envoyInfluenceCost} influence; opens a friendly channel.`
+                  : 'The relationship is already beyond a first introduction.',
         },
         trade: {
-          enabled: friendlyEnough && !hasTreaty('trade') && !hostile && !campaign.embargoes.includes(selectedTarget.id),
-          reason: hasTreaty('trade') ? 'A trade agreement is already active.' : hostile ? 'Trade cannot be proposed while the border is hostile.' : 'Requires friendly relations and an open border.',
+          enabled: friendlyEnough && !hasTreaty('trade') && !hostile && !campaign.embargoes.includes(selectedTarget.id) && canAfford('trade'),
+          reason: hasTreaty('trade') ? 'A trade agreement is already active.' : hostile ? 'Trade cannot be proposed while the border is hostile.' : !canAfford('trade') ? `Needs ${treatyInfluenceCost('trade')} influence to draft.` : 'Requires friendly relations and an open border.',
         },
         nonAggression: {
-          enabled: (relationship === 'friendly' || relationship === 'trading') && !hasTreaty('non-aggression'),
-          reason: hasTreaty('non-aggression') ? 'This pact is already protecting the border.' : 'Friendly courts can promise four turns without war.',
+          enabled: (relationship === 'friendly' || relationship === 'trading') && !hasTreaty('non-aggression') && canAfford('non-aggression'),
+          reason: hasTreaty('non-aggression') ? 'This pact is already protecting the border.' : !canAfford('non-aggression') ? `Needs ${treatyInfluenceCost('non-aggression')} influence to draft.` : 'Friendly courts can promise four turns without war.',
         },
         alliance: {
-          enabled: (relationship === 'friendly' || relationship === 'trading') && !hasTreaty('defensive-alliance') && campaign.reputation >= 35,
-          reason: hasTreaty('defensive-alliance') ? 'The defensive alliance is already sworn.' : campaign.reputation < 35 ? 'Reputation is too low to ask for a mutual defense oath.' : 'Trade or friendship must come before an alliance.',
+          enabled: (relationship === 'friendly' || relationship === 'trading') && !hasTreaty('defensive-alliance') && campaign.reputation >= 35 && canAfford('defensive-alliance'),
+          reason: hasTreaty('defensive-alliance') ? 'The defensive alliance is already sworn.' : campaign.reputation < 35 ? 'Reputation is too low to ask for a mutual defense oath.' : !canAfford('defensive-alliance') ? `Needs ${treatyInfluenceCost('defensive-alliance')} influence to draft.` : 'Trade or friendship must come before an alliance.',
         },
         militaryAid: {
-          enabled: relationship === 'allied' && !hasTreaty('military-aid'),
-          reason: relationship !== 'allied' ? 'Only an ally will answer a military aid request.' : 'An ally can send 12 soldiers for the next front.',
+          enabled: relationship === 'allied' && !hasTreaty('military-aid') && canAfford('military-aid'),
+          reason: relationship !== 'allied' ? 'Only an ally will answer a military aid request.' : !canAfford('military-aid') ? `Needs ${treatyInfluenceCost('military-aid')} influence to request.` : 'An ally can send 12 soldiers for the next front.',
         },
         peace: {
-          enabled: relationship === 'war',
-          reason: relationship === 'war' ? 'Offer three turns of peace to reopen the border.' : 'Peace terms are only needed while at war.',
+          enabled: relationship === 'war' && canAfford('peace'),
+          reason: relationship !== 'war' ? 'Peace terms are only needed while at war.' : !canAfford('peace') ? `Needs ${treatyInfluenceCost('peace')} influence to offer.` : 'Offer three turns of peace to reopen the border.',
         },
       },
     };
-  }, [campaign, selectedTarget, selectedTradeRoute, tradeSourceOptions]);
+  }, [campaign, selectedTarget, selectedTradeRoute, tradeSourceOptions, diplomacyEnabled]);
   const tradeCanEstablish = Boolean(
     campaign &&
+    commerceEnabled &&
     selectedTarget &&
     selectedTradeRoute === null &&
-    selectedPartner?.offers.trade.enabled === false &&
-    (campaign.relationships[selectedTarget.id] === 'trading' || campaign.relationships[selectedTarget.id] === 'allied') &&
-    campaign.treaties.some((treaty) => treaty.partnerRegionId === selectedTarget.id && treaty.kind === 'trade') &&
+    (!diplomacyEnabled || (
+      selectedPartner?.offers.trade.enabled === false &&
+      (campaign.relationships[selectedTarget.id] === 'trading' || campaign.relationships[selectedTarget.id] === 'allied') &&
+      campaign.treaties.some((treaty) => treaty.partnerRegionId === selectedTarget.id && treaty.kind === 'trade')
+    )) &&
     tradeSourceOptions.some((source) => source.id === tradeDraftSourceId) &&
-    !campaign.embargoes.includes(selectedTarget.id) &&
+    (!diplomacyEnabled || !campaign.embargoes.includes(selectedTarget.id)) &&
     campaign.resources[tradeDraftExport] >= 2 &&
     campaign.gold >= 4,
   );
   const tradeEstablishReason = !selectedTarget
     ? 'Select a neighboring realm first.'
+    : !commerceEnabled
+      ? 'Commerce & Industry is dormant. Awaken the pack in Campaign systems to charter routes.'
     : selectedTradeRoute
       ? 'A route is already chartered with this partner.'
-      : !selectedPartner?.offers.trade.enabled && !campaign?.treaties.some((treaty) => treaty.partnerRegionId === selectedTarget.id && treaty.kind === 'trade')
+      : diplomacyEnabled && !selectedPartner?.offers.trade.enabled && !campaign?.treaties.some((treaty) => treaty.partnerRegionId === selectedTarget.id && treaty.kind === 'trade')
         ? 'Propose a trade agreement before chartering a route.'
         : !tradeSourceOptions.length
           ? 'No owned region shares an open border with this realm.'
-          : campaign?.embargoes.includes(selectedTarget.id)
+          : diplomacyEnabled && campaign?.embargoes.includes(selectedTarget.id)
             ? 'Lift the embargo before reopening commerce.'
             : (campaign?.resources[tradeDraftExport] ?? 0) < 2
               ? `The stores need at least 2 ${tradeDraftExport} for a dependable convoy.`
@@ -1278,7 +1376,7 @@ function App() {
   };
 
   const startCampaign = () => {
-    const next = makeNewCampaign(nationName, banners[bannerIndex]);
+    const next = makeNewCampaign(nationName, banners[bannerIndex], newExpansions);
     setCampaign(next);
     setSelectedId('aurelian');
     announce(`${next.nation} enters the chronicle.`, false, 'welcome');
@@ -1297,6 +1395,31 @@ function App() {
     setCampaign((current) => (current ? transform(current) : current));
   };
 
+  const updateExpansionSelection = (selection: ExpansionSelection) => {
+    if (!campaign) return;
+    const previous = campaign.expansions;
+    updateCampaign((current) => ({ ...current, expansions: { ...selection } }));
+    const changed = Object.keys(selection).filter((id) => previous[id as keyof ExpansionSelection] !== selection[id as keyof ExpansionSelection]);
+    if (changed.length) {
+      const enabled = changed.filter((id) => selection[id as keyof ExpansionSelection]).map((id) => id === 'diplomacy' ? 'Diplomacy' : 'Commerce');
+      const disabled = changed.filter((id) => !selection[id as keyof ExpansionSelection]).map((id) => id === 'diplomacy' ? 'Diplomacy' : 'Commerce');
+      announce(
+        `${enabled.length ? `${enabled.join(' and ')} awakened` : ''}${enabled.length && disabled.length ? '; ' : ''}${disabled.length ? `${disabled.join(' and ')} dormant` : ''}. Existing chronicles remain preserved.`,
+        false,
+        'general',
+      );
+    }
+  };
+
+  const updateDiplomaticPosture = (posture: DiplomaticPosture) => {
+    if (!campaign || !diplomacyEnabled || campaign.diplomacy.posture === posture) return;
+    updateCampaign((current) => ({
+      ...current,
+      diplomacy: { ...current.diplomacy, posture },
+      log: [`Court posture set to ${postureLabel(posture)}.`, ...current.log].slice(0, 4),
+    }));
+    announce(`${postureLabel(posture)} posture adopted. ${postureDescription(posture)}`, false, 'general');
+  };
   const createFront = () => {
     if (!campaign || !selectedTarget) return;
     const source = regionById(campaign.regions, frontDraftSourceId);
@@ -1411,11 +1534,21 @@ function App() {
   const selectedPartnerId = selectedTarget?.id;
 
   const sendEnvoy = () => {
-    if (!campaign || !selectedPartnerId || campaign.gold < 20) return announce('The treasury cannot fund another envoy yet.', true);
+    if (!campaign || !diplomacyEnabled || !selectedPartnerId) return;
+    const cooldown = campaign.diplomacy.envoyCooldowns[selectedPartnerId] ?? 0;
+    if (cooldown > 0) return announce(`The envoy office needs ${cooldown} more turn${cooldown === 1 ? '' : 's'} before it can return.`, true);
+    const influenceCost = campaign.diplomacy.posture === 'assertive' ? 8 : 5;
+    if (campaign.gold < 20) return announce('The treasury cannot fund another envoy yet.', true);
+    if (campaign.diplomacy.influence < influenceCost) return announce(`The court needs ${influenceCost} influence to send this envoy.`, true);
     updateCampaign((current) => ({
       ...current,
       gold: current.gold - 20,
       reputation: Math.min(100, current.reputation + 2),
+      diplomacy: {
+        ...current.diplomacy,
+        influence: Math.max(0, current.diplomacy.influence - influenceCost + (current.diplomacy.posture === 'conciliatory' ? 4 : 0)),
+        envoyCooldowns: { ...current.diplomacy.envoyCooldowns, [selectedPartnerId]: 3 },
+      },
       relationships: { ...current.relationships, [selectedPartnerId]: 'friendly' },
       log: [`An envoy opened a friendly channel with ${regionById(current.regions, selectedPartnerId)?.name ?? 'a neighboring court'}.`, ...current.log].slice(0, 4),
     }));
@@ -1423,7 +1556,7 @@ function App() {
   };
 
   const proposeTreaty = (kind: TreatyKind) => {
-    if (!campaign || !selectedPartnerId || !selectedPartner) return;
+    if (!campaign || !diplomacyEnabled || !selectedPartnerId || !selectedPartner) return;
     const offer = kind === 'trade'
       ? selectedPartner.offers.trade
       : kind === 'non-aggression'
@@ -1434,9 +1567,12 @@ function App() {
             ? selectedPartner.offers.militaryAid
             : selectedPartner.offers.peace;
     if (!offer.enabled) return announce(offer.reason, true);
+    const influenceCost = treatyInfluenceCost(kind);
+    if (campaign.diplomacy.influence < influenceCost) return announce(`The court needs ${influenceCost} influence to make this proposal.`, true);
     const partnerName = regionById(campaign.regions, selectedPartnerId)?.name ?? 'the neighboring court';
     updateCampaign((current) => ({
       ...current,
+      diplomacy: { ...current.diplomacy, influence: Math.max(0, current.diplomacy.influence - influenceCost) },
       relationships: {
         ...current.relationships,
         [selectedPartnerId]: kind === 'defensive-alliance' ? 'allied' : kind === 'trade' ? 'trading' : kind === 'peace' ? 'friendly' : current.relationships[selectedPartnerId] ?? 'friendly',
@@ -1458,7 +1594,7 @@ function App() {
   };
 
   const toggleEmbargo = () => {
-    if (!campaign || !selectedPartnerId) return;
+    if (!campaign || !diplomacyEnabled || !selectedPartnerId) return;
     const partnerName = regionById(campaign.regions, selectedPartnerId)?.name ?? 'the neighboring court';
     const imposing = !campaign.embargoes.includes(selectedPartnerId);
     updateCampaign((current) => ({
@@ -1475,7 +1611,7 @@ function App() {
   };
 
   const breakTreaty = (treatyId: string) => {
-    if (!campaign) return;
+    if (!campaign || !diplomacyEnabled) return;
     const treaty = campaign.treaties.find((candidate) => candidate.id === treatyId);
     if (!treaty) return;
     const partnerName = regionById(campaign.regions, treaty.partnerRegionId)?.name ?? 'the neighboring court';
@@ -1494,7 +1630,7 @@ function App() {
   };
 
   const establishTradeRoute = () => {
-    if (!campaign || !selectedTarget || !tradeCanEstablish) return announce(tradeEstablishReason, true);
+    if (!campaign || !commerceEnabled || !selectedTarget || !tradeCanEstablish) return announce(tradeEstablishReason, true);
     const source = regionById(campaign.regions, tradeDraftSourceId);
     if (!source) return announce('Choose a valid source region for the convoy.', true);
     const partnerName = selectedTarget.name;
@@ -1584,13 +1720,13 @@ function App() {
   const recruitForces = () => {
     if (!campaign || !selected || selected.kind !== 'player') return;
     const cost = 25;
-    if (campaign.gold < cost || campaign.food < 10 || campaign.resources.grain < 10) return announce('Not enough gold or grain to call a new levy.', true);
+    if (campaign.gold < cost || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)) return announce('Not enough gold or grain to call a new levy.', true);
     const bonus = selected.barracks ? 16 : 10;
     updateCampaign((current) => ({
       ...current,
       gold: current.gold - cost,
       food: current.food - 10,
-      resources: { ...current.resources, grain: current.resources.grain - 10 },
+      resources: commerceEnabled ? { ...current.resources, grain: current.resources.grain - 10 } : current.resources,
       forces: current.forces + bonus,
       regions: current.regions.map((region) =>
         region.id === selected.id ? { ...region, forces: region.forces + bonus } : region,
@@ -1610,13 +1746,13 @@ function App() {
     if (!source || !target || source.kind !== 'player' || target.kind === 'player') {
       return announce('This front no longer has a valid border.', true);
     }
-    const protectedTreaty = campaign.treaties.find((treaty) =>
+    const protectedTreaty = diplomacyEnabled && campaign.treaties.find((treaty) =>
       treaty.partnerRegionId === target.id &&
       (treaty.kind === 'non-aggression' || treaty.kind === 'defensive-alliance' || treaty.kind === 'peace') &&
       treaty.startedTurn + treaty.duration > campaign.turn,
     );
     if (protectedTreaty) return announce(`This attack is blocked by an active ${treatyLabel(protectedTreaty.kind).toLowerCase()}.`, true);
-    const supportingForces = campaign.militaryAid > 0 && campaign.treaties.some((treaty) =>
+    const supportingForces = diplomacyEnabled && campaign.militaryAid > 0 && campaign.treaties.some((treaty) =>
       treaty.partnerRegionId !== target.id &&
       treaty.kind === 'defensive-alliance' &&
       treaty.startedTurn + treaty.duration > campaign.turn &&
@@ -1634,15 +1770,17 @@ function App() {
       ...current,
       forces: Math.max(0, current.forces - casualties),
       militaryAid: supportingForces ? Math.max(0, current.militaryAid - supportingForces) : current.militaryAid,
-      relationships: won
-        ? Object.fromEntries(Object.entries(current.relationships).filter(([regionId]) => regionId !== target.id))
-        : { ...current.relationships, [target.id]: 'war' },
-      treaties: won
-        ? current.treaties.filter((treaty) => treaty.partnerRegionId !== target.id)
-        : current.treaties,
-      tradeRoutes: won
-        ? current.tradeRoutes.filter((route) => route.partnerRegionId !== target.id)
-        : current.tradeRoutes,
+       relationships: diplomacyEnabled
+         ? won
+           ? Object.fromEntries(Object.entries(current.relationships).filter(([regionId]) => regionId !== target.id))
+           : { ...current.relationships, [target.id]: 'war' }
+         : current.relationships,
+       treaties: diplomacyEnabled && won
+         ? current.treaties.filter((treaty) => treaty.partnerRegionId !== target.id)
+         : current.treaties,
+       tradeRoutes: commerceEnabled && won
+         ? current.tradeRoutes.filter((route) => route.partnerRegionId !== target.id)
+         : current.tradeRoutes,
       regions: current.regions.flatMap((region) => {
         if (region.id === front.targetRegionId && won) {
           return [{
@@ -1677,48 +1815,68 @@ function App() {
   const advanceTurn = () => {
     if (!campaign) return;
     const nextTurn = campaign.turn + 1;
-    const currentEconomy = realmEconomy(campaign.regions);
+    const currentEconomy = commerceEnabled ? realmEconomy(campaign.regions) : { production: emptyLedger(), consumption: emptyLedger() };
     const nextResources = { ...campaign.resources };
-    RESOURCE_TYPES.forEach((resource) => {
-      nextResources[resource] = Math.max(0, nextResources[resource] + currentEconomy.production[resource] - currentEconomy.consumption[resource]);
-    });
+    if (commerceEnabled) {
+      RESOURCE_TYPES.forEach((resource) => {
+        nextResources[resource] = Math.max(0, nextResources[resource] + currentEconomy.production[resource] - currentEconomy.consumption[resource]);
+      });
+    }
     let routeIncome = 0;
     let routeUpkeep = 0;
     let activeRoutes = 0;
-    const nextRoutes = campaign.tradeRoutes.map((route) => {
-      const condition = routeCondition(campaign, route);
-      if (condition.status === 'active') {
-        activeRoutes += 1;
-        routeIncome += route.income;
-        routeUpkeep += route.upkeep;
-        nextResources[route.exportResource] = Math.max(0, nextResources[route.exportResource] - 2);
-        nextResources[route.importResource] += 3;
-      }
-      return {
-        ...route,
-        remainingTurns: Math.max(0, route.remainingTurns - 1),
-        status: condition.status === 'active' && route.remainingTurns <= 1 ? 'expired' : condition.status,
-      };
-    });
+    const nextRoutes = commerceEnabled
+      ? campaign.tradeRoutes.map((route) => {
+        const condition = routeCondition(campaign, route);
+        if (condition.status === 'active') {
+          activeRoutes += 1;
+          routeIncome += route.income;
+          routeUpkeep += route.upkeep;
+          nextResources[route.exportResource] = Math.max(0, nextResources[route.exportResource] - 2);
+          nextResources[route.importResource] += 3;
+        }
+        return {
+          ...route,
+          remainingTurns: Math.max(0, route.remainingTurns - 1),
+          status: condition.status === 'active' && route.remainingTurns <= 1 ? 'expired' : condition.status,
+        };
+      })
+      : campaign.tradeRoutes;
     const nextShortages = RESOURCE_TYPES.filter((resource) => nextResources[resource] < currentEconomy.consumption[resource]);
-    const expiredTreaties = campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration <= nextTurn).length;
+    const expiredTreaties = diplomacyEnabled ? campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration <= nextTurn).length : 0;
     const income = campaign.regions.filter((region) => region.kind === 'player').length * 24;
     const goldDelta = income + routeIncome - routeUpkeep;
+    const nextFood = commerceEnabled
+      ? nextResources.grain
+      : campaign.food + campaign.regions.filter((region) => region.kind === 'player').length * 8;
     updateCampaign((current) => ({
       ...current,
       turn: nextTurn,
       gold: Math.max(0, current.gold + goldDelta),
-      food: nextResources.grain,
+      food: nextFood,
       resources: nextResources,
       tradeRoutes: nextRoutes,
-      treaties: current.treaties.filter((treaty) => treaty.startedTurn + treaty.duration > nextTurn),
+      treaties: diplomacyEnabled
+        ? current.treaties.filter((treaty) => treaty.startedTurn + treaty.duration > nextTurn)
+        : current.treaties,
+      diplomacy: diplomacyEnabled
+        ? {
+          ...current.diplomacy,
+          influence: Math.min(100, current.diplomacy.influence + 1),
+          envoyCooldowns: Object.fromEntries(
+            Object.entries(current.diplomacy.envoyCooldowns)
+              .map(([id, turns]) => [id, turns - 1])
+              .filter(([, turns]) => typeof turns === 'number' && turns > 0),
+          ),
+        }
+        : current.diplomacy,
       log: [
-        `Turn ${nextTurn}: +${goldDelta} gold, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}.`,
+        `Turn ${nextTurn}: +${goldDelta} gold${commerceEnabled ? `, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}` : ', baseline stores steady'}.`,
         ...current.log,
       ].slice(0, 4),
     }));
     announce(
-      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold and ${nextResources.grain - campaign.resources.grain} grain${expiredTreaties ? `; ${expiredTreaties} treaty${expiredTreaties === 1 ? '' : 's'} expired` : ''}.`,
+      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties ? `; ${expiredTreaties} treaty${expiredTreaties === 1 ? '' : 's'} expired` : ''}.`,
       false,
       'harvest',
     );
@@ -1779,6 +1937,7 @@ function App() {
                 ))}
               </div>
             </div>
+            <ExpansionPackSelector selection={newExpansions} onChange={setNewExpansions} />
             <button className="button-primary found-button" onClick={startCampaign} data-testid="button-found-nation">
               Found the nation <ArrowRight size={15} />
             </button>
@@ -1818,6 +1977,12 @@ function App() {
               <h1 className="page-title">{campaign.nation}</h1>
             </div>
             <div className="turn-control">
+              <ExpansionPackControl
+                selection={campaign.expansions}
+                onChange={updateExpansionSelection}
+                open={systemsOpen}
+                setOpen={setSystemsOpen}
+              />
               <ThemeControl
                 theme={theme}
                 setTheme={setTheme}
@@ -1840,18 +2005,25 @@ function App() {
               { label: 'Treasury', value: campaign.gold, unit: 'gold', icon: Coins, testId: 'value-gold' },
               { label: 'Granary', value: campaign.food, unit: 'food', icon: Wheat, testId: 'value-food' },
               { label: 'Royal forces', value: campaign.forces, unit: 'soldiers', icon: Swords, testId: 'value-forces' },
-              { label: 'Held territory', value: playerRegions.length, unit: 'regions', icon: Flag, testId: 'value-territory' },
+               { label: 'Held territory', value: playerRegions.length, unit: 'provinces', icon: Flag, testId: 'value-territory' },
             ]}
           />
-          <EconomyPanel
-            stocks={campaign.resources}
-            production={economy.production}
-            consumption={economy.consumption}
-            shortages={economyShortages}
-            tradeIncome={tradeIncome}
-            tradeUpkeep={tradeUpkeep}
-            militaryAid={campaign.militaryAid}
-          />
+          {commerceEnabled ? (
+            <EconomyPanel
+              stocks={campaign.resources}
+              production={economy.production}
+              consumption={economy.consumption}
+              shortages={economyShortages}
+              tradeIncome={tradeIncome}
+              tradeUpkeep={tradeUpkeep}
+              militaryAid={campaign.militaryAid}
+            />
+          ) : (
+            <section className="panel pack-dormant-panel" aria-label="Commerce and Industry dormant" data-testid="panel-commerce-dormant">
+              <div className="pack-dormant-icon"><Coins size={18} aria-hidden="true" /></div>
+              <div><div className="panel-kicker">Commerce &amp; Industry dormant</div><h2>Baseline stores are steady</h2><p>Settlements, levies, fronts, and conquest remain active. Production, shortages, and convoy income will resume when the pack is awakened.</p></div>
+            </section>
+          )}
 
           <div className="content-grid">
             <section className="map-panel map-in">
@@ -1969,34 +2141,50 @@ function App() {
                   </>
                 ) : <div className="empty-selection"><Mountain size={26} /><h3>No province selected</h3><p>Choose a shape on the chart to read its dossier and decide what happens next.</p></div>}
               </section>
-              <TradePanel
-                partnerName={selectedTarget?.name ?? null}
-                route={selectedTradeRoute}
-                sourceOptions={tradeSourceOptions}
-                sourceId={tradeDraftSourceId}
-                exportResource={tradeDraftExport}
-                importResource={tradeDraftImport}
-                canEstablish={tradeCanEstablish}
-                establishReason={tradeEstablishReason}
-                onSourceChange={setTradeDraftSourceId}
-                onExportChange={setTradeDraftExport}
-                onImportChange={setTradeDraftImport}
-                onEstablish={establishTradeRoute}
-                onCancel={cancelTradeRoute}
-                onRenew={renewTradeRoute}
-              />
-              <DiplomacyPanel
-                partner={selectedPartner}
-                reputation={campaign.reputation}
-                onSendEnvoy={sendEnvoy}
-                onTradeAgreement={() => proposeTreaty('trade')}
-                onNonAggression={() => proposeTreaty('non-aggression')}
-                onAlliance={() => proposeTreaty('defensive-alliance')}
-                onMilitaryAid={() => proposeTreaty('military-aid')}
-                onPeace={() => proposeTreaty('peace')}
-                onEmbargo={toggleEmbargo}
-                onBreakTreaty={breakTreaty}
-              />
+              {commerceEnabled ? (
+                <TradePanel
+                  partnerName={selectedTarget?.name ?? null}
+                  route={selectedTradeRoute}
+                  sourceOptions={tradeSourceOptions}
+                  sourceId={tradeDraftSourceId}
+                  exportResource={tradeDraftExport}
+                  importResource={tradeDraftImport}
+                  canEstablish={tradeCanEstablish}
+                  establishReason={tradeEstablishReason}
+                  diplomacyEnabled={diplomacyEnabled}
+                  onSourceChange={setTradeDraftSourceId}
+                  onExportChange={setTradeDraftExport}
+                  onImportChange={setTradeDraftImport}
+                  onEstablish={establishTradeRoute}
+                  onCancel={cancelTradeRoute}
+                  onRenew={renewTradeRoute}
+                />
+              ) : (
+                <section className="panel pack-dormant-panel pack-dormant-panel-small" aria-label="Commerce and Industry dormant" data-testid="panel-trade-dormant">
+                  <div className="pack-dormant-icon"><Route size={17} aria-hidden="true" /></div>
+                  <div><div className="panel-kicker">Commerce &amp; Industry dormant</div><h2>Convoys are waiting</h2><p>Turn on the pack from Campaign systems to open trade routes and route consequences.</p></div>
+                </section>
+              )}
+              {diplomacyEnabled ? (
+                <DiplomacyPanel
+                  partner={selectedPartner}
+                  reputation={campaign.reputation}
+                  onSendEnvoy={sendEnvoy}
+                  onTradeAgreement={() => proposeTreaty('trade')}
+                  onNonAggression={() => proposeTreaty('non-aggression')}
+                  onAlliance={() => proposeTreaty('defensive-alliance')}
+                  onMilitaryAid={() => proposeTreaty('military-aid')}
+                  onPeace={() => proposeTreaty('peace')}
+                  onEmbargo={toggleEmbargo}
+                  onBreakTreaty={breakTreaty}
+                  onPostureChange={updateDiplomaticPosture}
+                />
+              ) : (
+                <section className="panel pack-dormant-panel pack-dormant-panel-small" aria-label="Diplomacy and Alliances dormant" data-testid="panel-diplomacy-dormant">
+                  <div className="pack-dormant-icon"><Handshake size={17} aria-hidden="true" /></div>
+                  <div><div className="panel-kicker">Diplomacy &amp; Alliances dormant</div><h2>The court is quiet</h2><p>Military orders remain available. Awaken the pack when you want envoys, posture, treaties, alliances, and peace terms.</p></div>
+                </section>
+              )}
 
               <section className="panel objective-panel">
                  <div className="panel-kicker">The first charter</div>
@@ -2017,10 +2205,10 @@ function App() {
           <aside className="guide-drawer" role="dialog" aria-modal="true" aria-label="Field guide">
             <div className="guide-header"><div><div className="panel-kicker">A primer for sovereigns</div><h2>Field guide</h2></div><button ref={guideCloseRef} className="close-button" onClick={() => setGuideOpen(false)} aria-label="Close guide" data-testid="button-close-guide"><X size={20} /></button></div>
             <div className="guide-section"><h3>Read the chart</h3><p>This is one connected continent, drawn as a field chart. Green provinces answer to your crown; red provinces are rival claims; gold provinces are open to persuasion.</p></div>
-             <div className="guide-section"><h3>Grow your realm</h3><ul className="guide-list"><li><Coins size={14} /> <span>Advance a turn to gather gold and the grain, timber, iron, and salt produced by every region you hold.</span></li><li><Hammer size={14} /> <span>Barracks cost 80 gold and make each recruitment call worth 16 soldiers instead of 10.</span></li><li><Landmark size={14} /> <span>Upgrade villages into towns and towns into cities. Each charter costs more than the last and improves local output.</span></li></ul></div>
+              <div className="guide-section"><h3>Grow your realm</h3><ul className="guide-list"><li><Coins size={14} /> <span>Advance a turn to gather gold. {commerceEnabled ? 'Commerce is active, so held provinces also produce and consume grain, timber, iron, and salt.' : 'The baseline keeps stores steady while your core settlement and military loop stays readable.'}</span></li><li><Hammer size={14} /> <span>Barracks cost 80 gold and make each recruitment call worth 16 soldiers instead of 10.</span></li><li><Landmark size={14} /> <span>Upgrade villages into towns and towns into cities. Each charter costs more than the last and improves local output.</span></li></ul></div>
              <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival or unclaimed province to name a front, choose its source province, and stage an exact levy. Review the projected strength before committing the march.</p></div>
-             <div className="guide-section"><h3>Trade &amp; diplomacy</h3><p>Send an envoy to make a neutral court friendly, sign a trade agreement, then charter a route for six turns of income. Routes have upkeep and can be disrupted by war, embargoes, blocked borders, or shortages.</p></div>
-             <div className="guide-section"><h3>Keep your word</h3><p>Non-aggression pacts protect a border, alliances can send aid to a neighboring front, and peace terms reopen a war-torn crossing. Breaking a treaty costs reputation and makes that court hostile.</p></div>
+              <div className="guide-section"><h3>Optional systems</h3><p><strong>{commerceEnabled ? 'Commerce & Industry is active.' : 'Commerce & Industry is dormant.'}</strong> {commerceEnabled ? 'Charter routes to move goods and earn income; shortages, upkeep, and border conditions can change their status.' : 'Turn it on from Campaign systems to add production, consumption, shortages, and convoys. Dormant route history is preserved.'}</p><p><strong>{diplomacyEnabled ? 'Diplomacy & Alliances is active.' : 'Diplomacy & Alliances is dormant.'}</strong> {diplomacyEnabled ? 'Choose a court posture, spend influence on envoys and treaty proposals, and manage the consequences of trust, aid, peace, and embargoes.' : 'Turn it on from Campaign systems to add court posture, envoys, influence, treaties, and alliance consequences. Dormant court history is preserved.'}</p></div>
+              {diplomacyEnabled && <div className="guide-section"><h3>Keep your word</h3><p>Non-aggression pacts protect a border, alliances can send aid to a neighboring front, and peace terms reopen a war-torn crossing. Breaking a treaty costs reputation and makes that court hostile.</p></div>}
             <div className="guide-section"><h3>Remember</h3><p>There is no perfect opening. The chronicle saves to this browser after every decision, so you may return whenever the map calls.</p></div>
           </aside>
         </div>

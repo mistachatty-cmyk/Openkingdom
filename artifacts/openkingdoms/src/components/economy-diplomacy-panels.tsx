@@ -59,6 +59,9 @@ export type DiplomacyPartnerView = {
   embargoed: boolean;
   treaties: TreatyView[];
   route: TradeRouteView | null;
+  posture: 'conciliatory' | 'balanced' | 'assertive';
+  influence: number;
+  envoyCooldown: number;
   offers: {
     envoy: { enabled: boolean; reason: string };
     trade: { enabled: boolean; reason: string };
@@ -173,6 +176,7 @@ export function TradePanel({
   onEstablish,
   onCancel,
   onRenew,
+  diplomacyEnabled = true,
 }: {
   partnerName: string | null;
   route: TradeRouteView | null;
@@ -188,6 +192,7 @@ export function TradePanel({
   onEstablish: () => void;
   onCancel: () => void;
   onRenew: () => void;
+  diplomacyEnabled?: boolean;
 }) {
   return (
     <section className="panel trade-panel" aria-labelledby="trade-panel-title">
@@ -228,7 +233,7 @@ export function TradePanel({
           </>
         ) : (
           <>
-            <p className="panel-intro">A route to <strong>{partnerName}</strong> earns gold and moves goods, but it needs a trade agreement, an open border, and dependable stores.</p>
+            <p className="panel-intro">A route to <strong>{partnerName}</strong> earns gold and moves goods, but it needs {diplomacyEnabled ? 'a trade agreement, ' : 'an open market charter, '}an open border, and dependable stores.</p>
             <label className="panel-field"><span>Source region</span>
               <select value={sourceId} onChange={(event) => onSourceChange(event.target.value)} disabled={!sourceOptions.length} data-testid="select-trade-source">
                 {sourceOptions.map((source) => <option value={source.id} key={source.id}>{source.name}</option>)}
@@ -271,6 +276,7 @@ export function DiplomacyPanel({
   onPeace,
   onEmbargo,
   onBreakTreaty,
+  onPostureChange,
 }: {
   partner: DiplomacyPartnerView | null;
   reputation: number;
@@ -282,6 +288,7 @@ export function DiplomacyPanel({
   onPeace: () => void;
   onEmbargo: () => void;
   onBreakTreaty: (treatyId: string) => void;
+  onPostureChange: (posture: DiplomacyPartnerView['posture']) => void;
 }) {
   return (
     <section className="panel diplomacy-panel" aria-labelledby="diplomacy-panel-title">
@@ -300,6 +307,22 @@ export function DiplomacyPanel({
               <small>{partner.relationshipReason}</small>
             </div>
             <span className={`relationship-badge ${relationshipClass(partner.relationship)}`}>{relationshipNames[partner.relationship]}</span>
+          </div>
+          <div className="diplomacy-posture">
+            <div>
+              <span className="subpanel-label">Court posture</span>
+              <small>{partner.influence} influence · {partner.envoyCooldown ? `${partner.envoyCooldown} turn envoy cooldown` : 'Envoy office ready'}</small>
+            </div>
+            <select
+              value={partner.posture}
+              onChange={(event) => onPostureChange(event.target.value as DiplomacyPartnerView['posture'])}
+              aria-label="Diplomatic posture"
+              data-testid="select-diplomatic-posture"
+            >
+              <option value="conciliatory">Conciliatory</option>
+              <option value="balanced">Balanced</option>
+              <option value="assertive">Assertive</option>
+            </select>
           </div>
           <p className="panel-intro">Offers are judged by trust, existing obligations, and the state of the border. The reason beside each action is part of the negotiation.</p>
           <div className="diplomacy-offers">
