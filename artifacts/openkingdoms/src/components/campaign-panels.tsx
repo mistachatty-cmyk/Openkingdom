@@ -125,11 +125,24 @@ export function AccessibleRegionIndex({
 }
 
 export function DispatchList({ entries }: { entries: string[] }) {
+  const recentEntryCount = 4;
+  const [showFullHistory, setShowFullHistory] = useState(false);
+  const visibleEntries = showFullHistory ? entries : entries.slice(0, recentEntryCount);
+  const olderEntryCount = Math.max(0, entries.length - recentEntryCount);
+
   return (
-    <section className="panel dispatch-panel" aria-label="Chronicle and court responses" aria-live="polite">
-      <div className="panel-kicker">Recent dispatches</div>
-      <div className="dispatch-list">
-        {entries.map((entry, index) => (
+    <section className="panel dispatch-panel" aria-labelledby="chronicle-title" aria-live="polite">
+      <div className="dispatch-heading">
+        <div>
+          <div className="panel-kicker">Campaign chronicle</div>
+          <h2 id="chronicle-title">Recent dispatches</h2>
+        </div>
+        <span className="mono dispatch-count">
+          {entries.length} {entries.length === 1 ? 'record' : 'records'}
+        </span>
+      </div>
+      <div className="dispatch-list" id="dispatch-history-list">
+        {visibleEntries.map((entry, index) => (
           <div
             key={`${entry}-${index}`}
             className={`dispatch-entry ${index === 0 ? 'is-latest' : ''}`}
@@ -139,6 +152,18 @@ export function DispatchList({ entries }: { entries: string[] }) {
           </div>
         ))}
       </div>
+      {olderEntryCount > 0 && (
+        <button
+          type="button"
+          className="button-quiet dispatch-history-toggle"
+          onClick={() => setShowFullHistory((current) => !current)}
+          aria-expanded={showFullHistory}
+          aria-controls="dispatch-history-list"
+          data-testid="button-toggle-dispatch-history"
+        >
+          {showFullHistory ? 'Show recent dispatches' : `Review full chronicle · ${olderEntryCount} older`}
+        </button>
+      )}
     </section>
   );
 }

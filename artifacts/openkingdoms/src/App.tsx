@@ -1068,7 +1068,7 @@ function readCampaign(): Campaign | null {
         : [],
       diplomacy: normalizeDiplomacy(saved.diplomacy),
       log: Array.isArray(saved.log)
-        ? saved.log.filter((entry): entry is string => typeof entry === 'string').slice(0, 4)
+        ? saved.log.filter((entry): entry is string => typeof entry === 'string')
         : ['The first standard was raised at Aurelian Reach.'],
     };
   } catch (error) {
@@ -1667,7 +1667,7 @@ function App() {
     updateCampaign((current) => ({
       ...current,
       diplomacy: { ...current.diplomacy, posture },
-      log: [`Court posture set to ${postureLabel(posture)}.`, ...current.log].slice(0, 4),
+      log: [`Court posture set to ${postureLabel(posture)}.`, ...current.log],
     }));
     announce(`${postureLabel(posture)} posture adopted. ${postureDescription(posture)}`, false, 'general');
   };
@@ -1706,7 +1706,7 @@ function App() {
           status: 'staged',
         },
       ],
-      log: [`${name} established with ${committedForces} soldiers staged.`, ...current.log].slice(0, 4),
+      log: [`${name} established with ${committedForces} soldiers staged.`, ...current.log],
     }));
     setActiveFrontId(id);
     announce(
@@ -1773,7 +1773,7 @@ function App() {
              }
              : candidate,
         ),
-        log: [`Forces recalled from ${front.name}.`, ...current.log].slice(0, 4),
+        log: [`Forces recalled from ${front.name}.`, ...current.log],
       };
     });
     announce('The staged forces have returned to their source region and the order is back in staging.', false, 'general');
@@ -1791,7 +1791,7 @@ function App() {
           : region,
       ),
       fronts: current.fronts.filter((candidate) => candidate.id !== frontId),
-      log: [`${front.name} was cancelled; soldiers returned to ${regionById(current.regions, front.sourceRegionId)?.name ?? 'the border'}.`, ...current.log].slice(0, 4),
+      log: [`${front.name} was cancelled; soldiers returned to ${regionById(current.regions, front.sourceRegionId)?.name ?? 'the border'}.`, ...current.log],
     }));
     setActiveFrontId(null);
     announce(`${front.name} cancelled. Its soldiers are back on defense.`, false, 'general');
@@ -1819,7 +1819,7 @@ function App() {
       relationships: response.accepted
         ? { ...current.relationships, [selectedPartnerId]: 'friendly' }
         : current.relationships,
-      log: [response.message, ...current.log].slice(0, 4),
+      log: [response.message, ...current.log],
     }));
     announce(response.message, !response.accepted, response.accepted ? 'general' : 'error');
   };
@@ -1843,7 +1843,7 @@ function App() {
       updateCampaign((current) => ({
         ...current,
         diplomacy: { ...current.diplomacy, influence: Math.max(0, current.diplomacy.influence - influenceCost) },
-        log: [response.message, ...current.log].slice(0, 4),
+        log: [response.message, ...current.log],
       }));
       announce(response.message, true, 'error');
       return;
@@ -1866,7 +1866,7 @@ function App() {
         },
       ],
       militaryAid: kind === 'military-aid' ? current.militaryAid + 12 : current.militaryAid,
-      log: [response.message, ...current.log].slice(0, 4),
+      log: [response.message, ...current.log],
     }));
     announce(response.message, false, kind === 'defensive-alliance' ? 'victory' : 'general');
   };
@@ -1883,7 +1883,7 @@ function App() {
       relationships: imposing
         ? { ...current.relationships, [selectedPartnerId]: 'hostile' }
         : current.relationships,
-      log: [`${imposing ? 'Embargo imposed on' : 'Embargo lifted from'} ${partnerName}.`, ...current.log].slice(0, 4),
+      log: [`${imposing ? 'Embargo imposed on' : 'Embargo lifted from'} ${partnerName}.`, ...current.log],
     }));
     announce(imposing ? `Trade with ${partnerName} is embargoed.` : `The embargo on ${partnerName} has been lifted.`, imposing, 'general');
   };
@@ -1902,7 +1902,7 @@ function App() {
       tradeRoutes: treaty.kind === 'trade'
         ? current.tradeRoutes.filter((route) => route.partnerRegionId !== treaty.partnerRegionId)
         : current.tradeRoutes,
-      log: [`${treatyLabel(treaty.kind)} with ${partnerName} broken; reputation fell ${reputationCost}.`, ...current.log].slice(0, 4),
+      log: [`${treatyLabel(treaty.kind)} with ${partnerName} broken; reputation fell ${reputationCost}.`, ...current.log],
     }));
     announce(`Treaty broken. Reputation fell ${reputationCost}; ${partnerName} is now hostile.`, true);
   };
@@ -1927,7 +1927,7 @@ function App() {
     updateCampaign((current) => ({
       ...current,
       tradeRoutes: [...current.tradeRoutes, route],
-      log: [`Trade route opened from ${source.name} to ${partnerName}.`, ...current.log].slice(0, 4),
+      log: [`Trade route opened from ${source.name} to ${partnerName}.`, ...current.log],
     }));
     announce(`The convoy now runs to ${partnerName}. Its first return comes next turn.`, false, 'harvest');
   };
@@ -1937,7 +1937,7 @@ function App() {
     updateCampaign((current) => ({
       ...current,
       tradeRoutes: current.tradeRoutes.filter((route) => route.partnerRegionId !== selectedPartnerId),
-      log: [`Trade route to ${regionById(current.regions, selectedPartnerId)?.name ?? 'the partner'} cancelled.`, ...current.log].slice(0, 4),
+      log: [`Trade route to ${regionById(current.regions, selectedPartnerId)?.name ?? 'the partner'} cancelled.`, ...current.log],
     }));
     announce('The convoy was recalled and its charter closed.', false, 'general');
   };
@@ -1955,7 +1955,7 @@ function App() {
       ...current,
       gold: current.gold - route.upkeep,
       tradeRoutes: current.tradeRoutes.map((candidate) => candidate.id === route.id ? { ...candidate, remainingTurns: 6, status: 'active' } : candidate),
-      log: [`Trade route to ${regionById(current.regions, selectedPartnerId)?.name ?? 'the partner'} renewed for six turns.`, ...current.log].slice(0, 4),
+      log: [`Trade route to ${regionById(current.regions, selectedPartnerId)?.name ?? 'the partner'} renewed for six turns.`, ...current.log],
     }));
     announce('The trade charter was renewed.', false, 'general');
   };
@@ -1970,7 +1970,7 @@ function App() {
       regions: current.regions.map((region) =>
         region.id === selected.id ? { ...region, barracks: true } : region,
       ),
-      log: [`Barracks raised at ${selected.name}.`, ...current.log].slice(0, 4),
+      log: [`Barracks raised at ${selected.name}.`, ...current.log],
     }));
     announce(`Barracks raised at ${selected.name}. Your levy grows stronger.`, false, 'build');
   };
@@ -1990,7 +1990,7 @@ function App() {
           ? { ...region, settlement: nextSettlement[region.settlement] }
           : region,
       ),
-      log: [`${selected.name} chartered as a ${nextSettlement[selected.settlement]}.`, ...current.log].slice(0, 4),
+      log: [`${selected.name} chartered as a ${nextSettlement[selected.settlement]}.`, ...current.log],
     }));
     announce(`${selected.name} is now a ${nextSettlement[selected.settlement]}.`, false, 'upgrade');
   };
@@ -2009,7 +2009,7 @@ function App() {
       regions: current.regions.map((region) =>
         region.id === selected.id ? { ...region, forces: region.forces + bonus } : region,
       ),
-      log: [`${bonus} forces recruited at ${selected.name}.`, ...current.log].slice(0, 4),
+      log: [`${bonus} forces recruited at ${selected.name}.`, ...current.log],
     }));
     announce(`${bonus} new forces answer the call at ${selected.name}.`, false, 'recruit');
   };
@@ -2042,7 +2042,7 @@ function App() {
       const message = `This attack is blocked by an active ${treatyLabel(protectedTreaty.kind).toLowerCase()}.`;
       updateCampaign((current) => ({
         ...current,
-        log: [message, ...current.log].slice(0, 4),
+         log: [message, ...current.log],
       }));
       return announce(message, true);
     }
@@ -2103,7 +2103,7 @@ function App() {
             ? `Victory at ${target.name}; ${survivors} soldiers hold the new border.`
           : `${target.name} repelled the attack${supportingForces ? ` with ${supportingForces} ally support committed` : ''}; ${retreating} soldiers returned to ${source.name}.`,
         ...current.log,
-      ].slice(0, 4),
+       ],
     }));
     setActiveFrontId(null);
     if (won) {
@@ -2247,7 +2247,7 @@ function App() {
         ...turnNotices,
         `Turn ${nextTurn}: +${goldDelta} gold${commerceEnabled ? `, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}` : ', baseline stores steady'}.`,
         ...current.log,
-      ].slice(0, 4),
+      ],
     }));
     announce(
       `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties.length ? `; ${expiredTreaties.length} treaty${expiredTreaties.length === 1 ? '' : 's'} expired` : ''}${turnNotices.length ? ` ${turnNotices.slice(0, 2).join(' ')}` : ''}`,
