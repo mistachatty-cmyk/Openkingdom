@@ -163,6 +163,11 @@ type ThemePreset = {
 };
 
 const KINGDOM_GOAL = 3;
+const RIVAL_DECISION_BUDGET = 1;
+const RIVAL_OPENING_GRACE_END_TURN = 2;
+const RIVAL_PASSIVE_PULSE = 3;
+const RIVAL_MAX_ACTION_REINFORCEMENT = 7;
+const RIVAL_MAX_FORCES = 160;
 
 const banners: Banner[] = [
   { name: 'Ember', color: '#bb5141', secondary: '#e6bd58' },
@@ -598,6 +603,112 @@ function isFrontStatus(value: unknown): value is FrontStatus {
 function frontTravelDuration(source: Region, target: Region) {
   const distance = Math.hypot(source.label[0] - target.label[0], source.label[1] - target.label[1]);
   return Math.max(1, Math.min(3, Math.ceil(distance / 150)));
+}
+
+type RivalTurnInput = {
+  regions: Region[];
+  fronts: Front[];
+  relationships: Record<string, RelationshipState>;
+  treaties: Treaty[];
+  tradeRoutes: TradeRoute[];
+  embargoes: string[];
+  diplomacy: DiplomacyState;
+  turn: number;
+  diplomacyEnabled: boolean;
+  commerceEnabled: boolean;
+};
+
+type RivalTurnResult = {
+  regions: Region[];
+  notices: string[];
+};
+
+function resolveRivalTurn({
+  regions,
+  fronts,
+  relationships,
+  treaties,
+  tradeRoutes,
+  embargoes,
+  diplomacy,
+  turn,
+  diplomacyEnabled,
+  commerceEnabled,
+}: RivalTurnInput): RivalTurnResult {
+  if (turn <= RIVAL_OPENING_GRACE_END_TURN) return { regions, notices: [] };
+
+  const playerRegions = regions.filter((region) => region.kind === 'player');
+  const candidates = regions
+    .filter((region) => region.kind === 'rival')
+    .map((rival) => {
+      const playerBorder = playerRegions.some((player) => hasSharedBorder(regions, player.id, rival.id));
+      const frontThreat = fronts
+        .filter((front) =>
+          front.targetRegionId === rival.id &&
+          front.committedForces > 0 &&
+          front.status !== 'resolved',
+        )
+        .sort((first, second) =>
+          second.committedForces - first.committedForces || first.id.localeCompare(second.id),
+        )[0];
+      const relationship = relationships[rival.id] ?? 'neutral';
+      const embargoed = diplomacyEnabled && embargoes.includes(rival.id);
+      const protectedTreaty = diplomacyEnabled && treaties.some((treaty) =>
+        treaty.partnerRegionId === rival.id &&
+        (treaty.kind === 'non-aggression' || treaty.kind === 'defensive-alliance' || treaty.kind === 'peace') &&
+        treaty.startedTurn + treaty.duration > turn,
+      );
+      const activeRoute = commerceEnabled && tradeRoutes.some((route) =>
+        route.partnerRegionId === rival.id &&
+        route.status === 'active' &&
+        route.remainingTurns > 0,
+      );
+
+      if (protectedTreaty || (!frontThreat && (!playerBorder || turn % RIVAL_PASSIVE_PULSE !== 0))) return null;
+      if (!frontThreat && (relationship === 'friendly' || relationship === 'trading' || relationship === 'allied')) return null;
+
+      const postureWeight = diplomacyEnabled
+        ? diplomacy.posture === 'assertive' ? 12 : diplomacy.posture === 'conciliatory' ? -8 : 0
+        : 0;
+      const threatWeight = frontThreat
+        ? 1000 + frontThreat.committedForces + (frontThreat.status === 'arrived' ? 40 : frontThreat.status === 'marching' ? 20 : 5)
+        : 100;
+      const relationshipWeight = relationship === 'war' ? 30 : relationship === 'hostile' ? 20 : 0;
+
+      return {
+        rival,
+        frontThreat,
+        activeRoute,
+        embargoed,
+        relationship,
+        priority: threatWeight + relationshipWeight + postureWeight,
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+    .sort((first, second) => second.priority - first.priority || first.rival.id.localeCompare(second.rival.id));
+
+  const selected = candidates.slice(0, RIVAL_DECISION_BUDGET)[0];
+  if (!selected) return { regions, notices: [] };
+
+  let reinforcement = selected.frontThreat
+    ? selected.frontThreat.status === 'arrived' ? 5 : 3
+    : 2;
+  if (diplomacyEnabled && (selected.relationship === 'war' || selected.relationship === 'hostile')) reinforcement += 2;
+  if (diplomacyEnabled && diplomacy.posture === 'assertive') reinforcement += 1;
+  if (commerceEnabled && selected.activeRoute) reinforcement -= 1;
+  if (selected.embargoed) reinforcement += 1;
+  reinforcement = Math.max(1, Math.min(RIVAL_MAX_ACTION_REINFORCEMENT, reinforcement));
+
+  const nextRegions = regions.map((region) =>
+    region.id === selected.rival.id
+      ? { ...region, forces: Math.min(RIVAL_MAX_FORCES, region.forces + reinforcement) }
+      : region,
+  );
+  const notice = selected.frontThreat
+    ? `${selected.rival.name} reinforced the threatened border with ${reinforcement} forces while ${selected.frontThreat.name} ${selected.frontThreat.status === 'arrived' ? 'waits at the line' : 'approaches'}${selected.embargoed ? '; the embargo hardened its response' : ''}.`
+    : `${selected.rival.name} conducted a border drill and added ${reinforcement} forces${selected.activeRoute ? '; its open trade road kept the response measured' : selected.embargoed ? '; the embargo hardened its response' : ''}.`;
+
+  return { regions: nextRegions, notices: [notice] };
 }
 
 function routeCondition(campaign: Campaign, route: TradeRoute) {
@@ -1968,6 +2079,23 @@ function App() {
     });
     const nextShortages = RESOURCE_TYPES.filter((resource) => nextResources[resource] < currentEconomy.consumption[resource]);
     const expiredTreaties = diplomacyEnabled ? campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration <= nextTurn).length : 0;
+    const nextTreaties = diplomacyEnabled
+      ? campaign.treaties.filter((treaty) => treaty.startedTurn + treaty.duration > nextTurn)
+      : campaign.treaties;
+    const rivalTurn = resolveRivalTurn({
+      regions: nextRegions,
+      fronts: nextFronts,
+      relationships: campaign.relationships,
+      treaties: nextTreaties,
+      tradeRoutes: nextRoutes,
+      embargoes: campaign.embargoes,
+      diplomacy: campaign.diplomacy,
+      turn: nextTurn,
+      diplomacyEnabled,
+      commerceEnabled,
+    });
+    nextRegions = rivalTurn.regions;
+    const turnNotices = [...rivalTurn.notices, ...frontNotices];
     const income = campaign.regions.filter((region) => region.kind === 'player').length * 24;
     const goldDelta = income + routeIncome - routeUpkeep;
     const nextFood = commerceEnabled
@@ -1982,9 +2110,7 @@ function App() {
       tradeRoutes: nextRoutes,
       regions: nextRegions,
       fronts: nextFronts,
-      treaties: diplomacyEnabled
-        ? current.treaties.filter((treaty) => treaty.startedTurn + treaty.duration > nextTurn)
-        : current.treaties,
+      treaties: nextTreaties,
       diplomacy: diplomacyEnabled
         ? {
           ...current.diplomacy,
@@ -1997,13 +2123,13 @@ function App() {
         }
         : current.diplomacy,
       log: [
-        ...frontNotices,
+        ...turnNotices,
         `Turn ${nextTurn}: +${goldDelta} gold${commerceEnabled ? `, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}` : ', baseline stores steady'}.`,
         ...current.log,
       ].slice(0, 4),
     }));
     announce(
-      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties ? `; ${expiredTreaties} treaty${expiredTreaties === 1 ? '' : 's'} expired` : ''}${frontNotices.length ? ` ${frontNotices.slice(0, 2).join(' ')}` : ''}`,
+      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties ? `; ${expiredTreaties} treaty${expiredTreaties === 1 ? '' : 's'} expired` : ''}${turnNotices.length ? ` ${turnNotices.slice(0, 2).join(' ')}` : ''}`,
       false,
       'harvest',
     );
