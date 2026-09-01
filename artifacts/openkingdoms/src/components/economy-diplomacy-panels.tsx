@@ -342,7 +342,7 @@ export function DiplomacyPanel({
             <div className="treaty-list">
               <div className="subpanel-label">Active obligations</div>
               {partner.treaties.map((treaty) => (
-                <div className="treaty-row" key={treaty.id}>
+                <div className="treaty-row" key={treaty.id} data-testid={`treaty-${treaty.kind}`}>
                   <span><Check size={12} aria-hidden="true" /> {treaty.label}<small>{treaty.remainingTurns} turns remain</small></span>
                   <button type="button" className="treaty-break-button" onClick={() => onBreakTreaty(treaty.id)} disabled={readOnly} aria-label={`Break ${treaty.label}`} data-testid={`button-break-treaty-${treaty.id}`}><Ban size={12} aria-hidden="true" /></button>
                 </div>
