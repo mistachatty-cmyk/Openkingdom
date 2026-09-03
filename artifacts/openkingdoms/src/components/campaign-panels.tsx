@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { ArrowRight, Check, CircleAlert, Flag, Route, Swords, Wheat } from 'lucide-react';
 
 export type ResourceItem = {
   label: string;
@@ -17,6 +18,45 @@ export type RegionIndexItem = {
   settlement: 'Village' | 'Town' | 'City';
   forces: number;
 };
+
+export type TurnSummary = {
+  turn: number;
+  headline: string;
+  items: string[];
+};
+
+export function TurnSummaryPanel({ summary }: { summary: TurnSummary }) {
+  return (
+    <section className="turn-summary-panel" aria-labelledby="turn-summary-title" data-testid="panel-turn-summary">
+      <div className="turn-summary-heading">
+        <div>
+          <div className="panel-kicker">Latest resolution · Turn {summary.turn}</div>
+          <h2 id="turn-summary-title">{summary.headline}</h2>
+        </div>
+        <span className="turn-summary-mark" aria-hidden="true"><Check size={15} /></span>
+      </div>
+      <div className="turn-summary-items">
+        {summary.items.map((item, index) => {
+          const Icon = index === 0 ? Wheat : item.toLowerCase().includes('front') || item.toLowerCase().includes('army')
+            ? Swords
+            : item.toLowerCase().includes('rival') || item.toLowerCase().includes('border')
+              ? Flag
+              : item.toLowerCase().includes('route') || item.toLowerCase().includes('trade')
+                ? Route
+                : item.toLowerCase().includes('treaty') || item.toLowerCase().includes('court')
+                  ? CircleAlert
+                  : ArrowRight;
+          return (
+            <div className="turn-summary-item" key={`${summary.turn}-${index}`}>
+              <Icon size={13} aria-hidden="true" />
+              <span>{item}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 export function ResourceStrip({ items }: { items: ResourceItem[] }) {
   return (
@@ -41,6 +81,16 @@ function getRegionStatus(kind: RegionIndexItem['kind']) {
   return 'Unclaimed';
 }
 
+const CORE_REGION_IDS = new Set([
+  'aurelian',
+  'bracken',
+  'saltmere',
+  'highvale',
+  'ironwood',
+  'northwatch',
+  'sunfall',
+]);
+
 export function AccessibleRegionIndex({
   regions,
   selectedId,
@@ -57,25 +107,26 @@ export function AccessibleRegionIndex({
     () => regions.filter((region) => !normalizedQuery || region.name.toLowerCase().includes(normalizedQuery) || region.id.includes(normalizedQuery)),
     [normalizedQuery, regions],
   );
-  const groupedRegions = useMemo(() => {
-    const groups = new Map<string, RegionIndexItem[]>();
-    filteredRegions.forEach((region) => {
-      const groupKey = region.chunkId ?? 'chunk-0-0';
-      const group = groups.get(groupKey) ?? [];
-      group.push(region);
-      groups.set(groupKey, group);
-    });
-    return [...groups.entries()];
-  }, [filteredRegions]);
-  const visibleGroups = showAll || normalizedQuery ? groupedRegions : groupedRegions.slice(0, 4);
-  const visibleRegionCount = visibleGroups.reduce((count, [, group]) => count + group.length, 0);
+  const prioritizedRegions = useMemo(
+    () => [...filteredRegions].sort((first, second) => {
+      if (first.id === selectedId) return -1;
+      if (second.id === selectedId) return 1;
+      if (CORE_REGION_IDS.has(first.id) && !CORE_REGION_IDS.has(second.id)) return -1;
+      if (CORE_REGION_IDS.has(second.id) && !CORE_REGION_IDS.has(first.id)) return 1;
+      if (first.kind === 'player' && second.kind !== 'player') return -1;
+      if (second.kind === 'player' && first.kind !== 'player') return 1;
+      return first.name.localeCompare(second.name);
+    }),
+    [filteredRegions, selectedId],
+  );
+  const visibleRegions = showAll || normalizedQuery ? prioritizedRegions : prioritizedRegions.slice(0, 8);
 
   return (
     <section className="accessible-map-index" aria-labelledby="accessible-map-title">
       <div className="accessible-index-heading">
         <div>
-          <div className="panel-kicker">Chart index</div>
-          <h3 id="accessible-map-title">Find a province</h3>
+          <div className="panel-kicker">Province index</div>
+          <h3 id="accessible-map-title">Accessible region index</h3>
         </div>
         <span className="mono">{filteredRegions.length} of {regions.length} provinces</span>
       </div>
@@ -85,17 +136,16 @@ export function AccessibleRegionIndex({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search the chart by province"
+          placeholder="Search provinces by name"
           aria-label="Search provinces by name"
           data-testid="input-region-search"
         />
       </label>
       <div className="accessible-region-groups">
-        {visibleGroups.map(([chunkId, group]) => (
-          <div className="accessible-region-group" key={chunkId}>
-            <h4>{chunkId.replace('chunk-', 'Chart sector ')}</h4>
-            <div className="accessible-region-grid">
-              {group.map((region) => (
+        <div className="accessible-region-group">
+          <h4>{normalizedQuery ? 'Matching provinces' : showAll ? 'All provinces' : 'Your realm & nearby borders'}</h4>
+          <div className="accessible-region-grid">
+            {visibleRegions.map((region) => (
                 <button
                   type="button"
                   key={region.id}
@@ -109,15 +159,14 @@ export function AccessibleRegionIndex({
                     {getRegionStatus(region.kind)} · {region.settlement} · {region.forces} forces
                   </small>
                 </button>
-              ))}
-            </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
       {!filteredRegions.length && <p className="accessible-index-empty">No provinces match that search.</p>}
-      {filteredRegions.length > visibleRegionCount && (
+      {filteredRegions.length > visibleRegions.length && (
         <button type="button" className="button-quiet accessible-index-more" onClick={() => setShowAll((current) => !current)}>
-           {showAll ? 'Show nearby sectors only' : `Show all ${filteredRegions.length} provinces`}
+           {showAll ? 'Show nearby provinces only' : `Show all ${filteredRegions.length} provinces`}
         </button>
       )}
     </section>

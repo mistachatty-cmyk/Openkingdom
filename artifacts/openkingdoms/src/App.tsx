@@ -36,6 +36,8 @@ import {
   AccessibleRegionIndex,
   DispatchList,
   ResourceStrip,
+  TurnSummaryPanel,
+  type TurnSummary,
 } from '@/components/campaign-panels';
 import {
   FrontDossier,
@@ -149,6 +151,7 @@ type Campaign = {
   embargoes: string[];
   diplomacy: DiplomacyState;
   log: string[];
+  lastTurnSummary?: TurnSummary;
 };
 
 type ThemeKey = 'parchment' | 'midnight' | 'meadow';
@@ -873,6 +876,7 @@ function makeNewCampaign(nation: string, banner: Banner, expansions: ExpansionSe
     embargoes: [],
     diplomacy: defaultDiplomacy(),
     log: ['The first standard was raised at Aurelian Reach.'],
+    lastTurnSummary: undefined,
   };
 }
 
@@ -1028,6 +1032,22 @@ function readCampaign(): Campaign | null {
         }];
       })
       : [];
+    const savedTurnSummary = saved.lastTurnSummary;
+    const lastTurnSummary: TurnSummary | undefined =
+      savedTurnSummary &&
+      typeof savedTurnSummary === 'object' &&
+      typeof savedTurnSummary.turn === 'number' &&
+      typeof savedTurnSummary.headline === 'string' &&
+      Array.isArray(savedTurnSummary.items)
+        ? {
+            turn: Math.max(1, Math.floor(savedTurnSummary.turn)),
+            headline: savedTurnSummary.headline.slice(0, 140),
+            items: savedTurnSummary.items
+              .filter((item): item is string => typeof item === 'string')
+              .slice(0, 8)
+              .map((item) => item.slice(0, 220)),
+          }
+        : undefined;
     const savedStatus: CampaignStatus = saved.status === 'victory' && hasFoundedKingdom(regions) ? 'victory' : 'active';
 
     return {
@@ -1070,6 +1090,7 @@ function readCampaign(): Campaign | null {
       log: Array.isArray(saved.log)
         ? saved.log.filter((entry): entry is string => typeof entry === 'string')
         : ['The first standard was raised at Aurelian Reach.'],
+      lastTurnSummary,
     };
   } catch (error) {
     console.error('Could not restore campaign save', error);
@@ -1369,6 +1390,8 @@ function App() {
     return [{
       id: front.id,
       name: front.name,
+      sourceRegionId: front.sourceRegionId,
+      targetRegionId: front.targetRegionId,
       source: source.label,
       target: target.label,
       committedForces: front.committedForces,
@@ -2216,11 +2239,34 @@ function App() {
     });
     nextRegions = rivalTurn.regions;
     const turnNotices = [...rivalTurn.notices, ...frontNotices];
+    const expiredRoutes = nextRoutes.filter((route) => route.status === 'expired').length;
     const income = campaign.regions.filter((region) => region.kind === 'player').length * 24;
     const goldDelta = income + routeIncome - routeUpkeep;
     const nextFood = commerceEnabled
       ? nextResources.grain
       : campaign.food + campaign.regions.filter((region) => region.kind === 'player').length * 8;
+    const turnSummary: TurnSummary = {
+      turn: nextTurn,
+      headline: turnNotices.length ? 'The border answers your orders.' : 'A quiet turn across the realm.',
+      items: [
+        `Treasury: ${goldDelta >= 0 ? '+' : ''}${goldDelta} gold${commerceEnabled ? ` · ${activeRoutes} active route${activeRoutes === 1 ? '' : 's'}` : ''}.`,
+        commerceEnabled
+          ? `Stores: ${nextResources.grain - campaign.resources.grain >= 0 ? '+' : ''}${nextResources.grain - campaign.resources.grain} grain${nextShortages.length ? ` · shortage in ${nextShortages.join(', ')}` : ' · no shortages'}.`
+          : `Granary: +${nextFood - campaign.food} food from the provinces.`,
+        frontNotices.length ? `Army movements: ${frontNotices.join(' ')}` : 'Army movements: no fronts changed position.',
+        rivalTurn.notices.length ? `Rival activity: ${rivalTurn.notices.join(' ')}` : 'Rival activity: no visible border action.',
+        expiredTreaties.length
+          ? `Court: ${treatyExpiryNotices.join(' ')}`
+          : diplomacyEnabled
+            ? 'Court: influence rose by 1 and active obligations held.'
+            : 'Court: diplomacy is dormant; borders remain unpledged.',
+        expiredRoutes
+          ? `Routes: ${expiredRoutes} trade charter${expiredRoutes === 1 ? '' : 's'} expired.`
+          : commerceEnabled
+            ? 'Routes: active charters delivered their scheduled goods.'
+            : 'Routes: commerce is dormant; no convoys moved.',
+      ],
+    };
     updateCampaign((current) => ({
       ...current,
       turn: nextTurn,
@@ -2231,6 +2277,7 @@ function App() {
       regions: nextRegions,
       fronts: nextFronts,
       treaties: nextTreaties,
+      lastTurnSummary: turnSummary,
       diplomacy: diplomacyEnabled
         ? {
           ...current.diplomacy,
@@ -2395,6 +2442,23 @@ function App() {
                { label: 'Held territory', value: playerRegions.length, unit: 'provinces', icon: Flag, testId: 'value-territory' },
             ]}
           />
+           <section className="campaign-flow" aria-label="Campaign decision flow">
+             <div className={`flow-step ${selected ? 'is-complete' : 'is-current'}`}>
+               <span className="flow-step-number">01</span>
+               <div><strong>Inspect</strong><small>{selected ? selected.name : 'Choose a province'}</small></div>
+             </div>
+             <ArrowRight className="flow-arrow" size={15} aria-hidden="true" />
+             <div className={`flow-step ${selected ? 'is-current' : ''}`}>
+               <span className="flow-step-number">02</span>
+               <div><strong>Choose an action</strong><small>{selected?.kind === 'player' ? 'Develop or recruit' : 'Plan a border order'}</small></div>
+             </div>
+             <ArrowRight className="flow-arrow" size={15} aria-hidden="true" />
+             <div className="flow-step flow-step-resolve">
+               <span className="flow-step-number">03</span>
+               <div><strong>{campaignComplete ? 'Review chronicle' : 'Resolve turn'}</strong><small>{campaignComplete ? 'Kingdom complete' : frontSummaries.length ? `${frontSummaries.length} front${frontSummaries.length === 1 ? '' : 's'} in motion` : 'No fronts staged yet'}</small></div>
+             </div>
+           </section>
+           {campaign.lastTurnSummary && <TurnSummaryPanel summary={campaign.lastTurnSummary} />}
           {commerceEnabled ? (
             <EconomyPanel
               stocks={campaign.resources}
@@ -2415,8 +2479,8 @@ function App() {
           <div className="content-grid">
             <section className="map-panel map-in">
               <div className="map-head">
-                 <div className="map-head-copy"><div className="panel-kicker">The continental chart</div><h2>Land, road &amp; crown</h2><p>Read the shape of the realm first. Then choose the border, bargain, or levy that changes it.</p></div>
-                <div className="map-head-side"><span className="map-view-tag">Illustrated campaign chart</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Road</span><span className="legend-item"><i className="legend-dot front" /> Front</span></div></div>
+                 <div className="map-head-copy"><div className="panel-kicker">The realm at a glance</div><h2>Read the border</h2><p>Land and ownership come first. Select a province to reveal the roads, orders, and courts that matter there.</p></div>
+                 <div className="map-head-side"><span className="map-view-tag">Focused political map</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Roads in focus</span><span className="legend-item"><i className="legend-dot front" /> Active front</span></div></div>
               </div>
               <div className="map-canvas-wrap" id="map-help">
                 <CampaignCanvas
@@ -2444,7 +2508,7 @@ function App() {
                   }}
                 />
               </div>
-                <p className="map-note"><strong>Choose your next move.</strong> At a glance, the chart shows the whole continent; zoom closer for settlements, routes, and marching orders.</p>
+                <p className="map-note"><strong>Choose your next move.</strong> Your selected province sets the map’s focus; nearby roads and orders appear as you need them.</p>
               <AccessibleRegionIndex
                 regions={campaign.regions}
                 selectedId={selectedId}

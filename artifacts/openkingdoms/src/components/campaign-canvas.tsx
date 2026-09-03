@@ -26,6 +26,8 @@ export type CanvasRegion = {
 export type CanvasFront = {
   id: string;
   name: string;
+  sourceRegionId: string;
+  targetRegionId: string;
   source: [number, number];
   target: [number, number];
   committedForces: number;
@@ -71,7 +73,8 @@ const VIEW_WIDTH = 760;
 const VIEW_HEIGHT = 390;
 const WORLD_WIDTH = 2600;
 const WORLD_HEIGHT = 1600;
-const MIN_ZOOM = 0.24;
+const MIN_ZOOM = 0.32;
+const DEFAULT_ZOOM = 0.54;
 const MAX_ZOOM = 2.8;
 const ZOOM_STEP = 0.25;
 const PAN_STEP = 48;
@@ -83,9 +86,9 @@ type MapView = {
 };
 
 const STARTING_VIEW: MapView = {
-  scale: MIN_ZOOM,
-  x: (VIEW_WIDTH / MIN_ZOOM - WORLD_WIDTH) / 2,
-  y: (VIEW_HEIGHT / MIN_ZOOM - WORLD_HEIGHT) / 2,
+  scale: DEFAULT_ZOOM,
+  x: VIEW_WIDTH / (2 * DEFAULT_ZOOM) - 1300,
+  y: VIEW_HEIGHT / (2 * DEFAULT_ZOOM) - 785,
 };
 
 function clampView(view: MapView): MapView {
@@ -284,7 +287,7 @@ export function CampaignCanvas({
   const [view, setView] = useState<MapView>(STARTING_VIEW);
   const [isDragging, setIsDragging] = useState(false);
   const [viewAnnouncement, setViewAnnouncement] = useState(
-    'Continental chart view at 24 percent zoom. Drag to pan; use arrow keys to move.',
+    'Realm board view at 54 percent zoom. Select a province, then drag to pan or use arrow keys to move.',
   );
   const [performanceStats, setPerformanceStats] = useState({
     visible: regions.length,
@@ -377,7 +380,7 @@ export function CampaignCanvas({
 
   const resetView = () => {
     setView(STARTING_VIEW);
-    setViewAnnouncement('Continental chart reset to its starting position at 24 percent zoom.');
+    setViewAnnouncement('Realm board reset to its starting position at 54 percent zoom.');
   };
 
   const panBy = (x: number, y: number) => {
@@ -429,9 +432,9 @@ export function CampaignCanvas({
 
       const visibleRegions = getVisibleRegions(view);
       const isCompact = bounds.width < 600;
-      const detailTier = isCompact
-        ? view.scale < 0.8 ? 'overview' : view.scale < 1.5 ? 'regional' : 'close'
-        : view.scale < 0.55 ? 'overview' : view.scale < 1.05 ? 'regional' : 'close';
+       const detailTier = isCompact
+         ? view.scale < 0.46 ? 'overview' : view.scale < 1.2 ? 'regional' : 'close'
+         : view.scale < 0.42 ? 'overview' : view.scale < 1.05 ? 'regional' : 'close';
       const visibleBounds = {
         left: -view.x - 240,
         right: -view.x + VIEW_WIDTH / view.scale + 240,
@@ -453,19 +456,6 @@ export function CampaignCanvas({
          ? coastlineCacheRef.current.path
          : new Path2D(coastlinePath);
        coastlineCacheRef.current = { source: coastlinePath, path: coastline };
-       context.save();
-       context.strokeStyle = palette.mutedInk;
-       context.lineWidth = 1;
-       context.globalAlpha = 0.14;
-       context.setLineDash([12, 18]);
-       for (let latitude = 330; latitude < WORLD_HEIGHT - 120; latitude += 155) {
-         context.beginPath();
-         context.moveTo(30, latitude);
-         context.bezierCurveTo(560, latitude - 34, 1040, latitude + 30, 1560, latitude - 12);
-         context.bezierCurveTo(1960, latitude - 38, 2300, latitude + 24, WORLD_WIDTH - 20, latitude - 6);
-         context.stroke();
-       }
-       context.restore();
       context.fillStyle = palette.land;
       context.strokeStyle = palette.road;
       context.lineWidth = detailTier === 'overview' ? 8 : 5;
@@ -475,23 +465,30 @@ export function CampaignCanvas({
       context.stroke(coastline);
       context.globalAlpha = 1;
 
-      // Roads are derived from reciprocal region links so adding a chunk never
-      // requires a second set of hand-maintained drawing coordinates.
+       // Ordinary roads stay quiet until a province is being inspected. Routes
+       // and fronts remain separate, higher-priority overlays.
+       const selectedNeighbors = new Set(
+         selectedId
+           ? [selectedId, ...(regionLookup.get(selectedId)?.adjacent ?? [])]
+           : [],
+       );
       context.strokeStyle = palette.road;
-      context.lineWidth = detailTier === 'overview' ? 5 : 2;
-      context.setLineDash(detailTier === 'overview' ? [] : [6, 7]);
-      context.globalAlpha = 0.52;
-      visibleRegions.forEach((region) => {
-        region.adjacent.forEach((adjacentId) => {
-          if (region.id > adjacentId) return;
-          const adjacent = regionLookup.get(adjacentId);
-          if (!adjacent || !isPointVisible(adjacent.label)) return;
-          context.beginPath();
-          context.moveTo(region.label[0], region.label[1]);
-          context.lineTo(adjacent.label[0], adjacent.label[1]);
-          context.stroke();
-        });
-      });
+       context.lineWidth = detailTier === 'close' ? 2 : 1.25;
+       context.setLineDash([]);
+       context.globalAlpha = detailTier === 'overview' ? 0 : 0.34;
+       if (detailTier !== 'overview') {
+         visibleRegions.forEach((region) => {
+           region.adjacent.forEach((adjacentId) => {
+             if (region.id > adjacentId || !selectedNeighbors.has(region.id) && !selectedNeighbors.has(adjacentId)) return;
+             const adjacent = regionLookup.get(adjacentId);
+             if (!adjacent || !isPointVisible(adjacent.label)) return;
+             context.beginPath();
+             context.moveTo(region.label[0], region.label[1]);
+             context.lineTo(adjacent.label[0], adjacent.label[1]);
+             context.stroke();
+           });
+         });
+       }
       context.globalAlpha = 1;
 
       const routeColors: Record<CanvasRoute['status'], string> = {
@@ -503,6 +500,7 @@ export function CampaignCanvas({
         expired: palette.mutedInk,
       };
       routes.forEach((route) => {
+         if (!selectedId || !selectedNeighbors.has(route.partnerRegionId)) return;
         if (!isPointVisible(route.source) && !isPointVisible(route.target)) return;
         context.save();
         context.strokeStyle = routeColors[route.status];
@@ -535,7 +533,7 @@ export function CampaignCanvas({
               : palette.neutral;
         context.strokeStyle = palette.ink;
         context.lineWidth = isSelected ? 3 : detailTier === 'overview' ? 1 : 1.5;
-        context.setLineDash(detailTier === 'overview' ? [] : [2, 4]);
+         context.setLineDash([]);
         if (isSelected) {
           context.shadowColor = palette.selection;
           context.shadowBlur = 10;
@@ -657,7 +655,13 @@ export function CampaignCanvas({
         context.restore();
       });
 
-      fronts.forEach((front) => {
+       fronts.forEach((front) => {
+         if (
+           !selectedId ||
+           (front.id !== selectedFrontId &&
+             front.sourceRegionId !== selectedId &&
+             front.targetRegionId !== selectedId)
+         ) return;
         const marker: [number, number] = [
           (front.source[0] + front.target[0]) / 2,
           (front.source[1] + front.target[1]) / 2,
@@ -856,6 +860,18 @@ export function CampaignCanvas({
         event.preventDefault();
         resetView();
         break;
+      case '[':
+      case ']': {
+        event.preventDefault();
+        const visibleRegions = getVisibleRegions(view);
+        if (!visibleRegions.length) break;
+        const currentIndex = Math.max(0, visibleRegions.findIndex((region) => region.id === selectedId));
+        const direction = event.key === ']' ? 1 : -1;
+        const nextRegion = visibleRegions[(currentIndex + direction + visibleRegions.length) % visibleRegions.length];
+        onSelect(nextRegion.id);
+        setViewAnnouncement(`Selected ${nextRegion.name}. Use ] for the next province or [ for the previous.`);
+        break;
+      }
     }
   };
 
@@ -873,9 +889,9 @@ export function CampaignCanvas({
         onWheel={handleWheel}
         onKeyDown={handleKeyDown}
         tabIndex={0}
-         aria-label="Interactive illustrated campaign chart with province, front, and trade markers. Use the indexes below to inspect and select orders."
+          aria-label="Interactive illustrated campaign map. Use the province index or [ and ] to select provinces; use arrow keys to pan."
         aria-describedby="map-navigation-help"
-        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown + - 0"
+         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown + - 0 [ ]"
         data-testid="canvas-campaign-map"
         data-map-scale={view.scale}
         data-map-x={view.x}
@@ -926,10 +942,10 @@ export function CampaignCanvas({
         </button>
       </div>
       <p className="map-navigation-help" id="map-navigation-help">
-         Drag across the chart · scroll or +/- to zoom · arrows to move · select a province, route, or front
+         Select a province in the index or press [ / ] · drag to pan · scroll or +/- to zoom
       </p>
       <div className="map-performance" aria-label="Map performance">
-        <span>World atlas · {regions.length} regions</span>
+         <span>Realm board · {regions.length} provinces</span>
         <span>{performanceStats.visible} visible</span>
         <span>{performanceStats.drawMs} ms draw</span>
         <span>{performanceStats.frameMs ? `${performanceStats.frameMs} ms frame` : 'frame time —'}</span>
