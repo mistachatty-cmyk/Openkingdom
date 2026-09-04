@@ -457,6 +457,7 @@
 .legend-dot { width: 8px; height: 8px; border: 1px solid #73613f; display: inline-block; }
 .legend-dot.yours { background: #6f9581; }
 .legend-dot.rival { background: #b97a68; }
+.legend-dot.bandit { background: #8d668b; }
 .legend-dot.neutral { background: #d7bd7e; }
 .legend-dot.road { border-radius: 50%; border-style: dashed; background: transparent; }
 .legend-dot.front { transform: rotate(45deg); background: var(--edition-primary); }
@@ -470,6 +471,7 @@
 .selection-name { font-family: var(--app-font-serif); font-size: 32px; color: #29384f; line-height: .85; margin: 5px 0 0; }
 .territory-badge { text-transform: uppercase; letter-spacing: .12em; font-size: 8px; font-weight: 800; padding: 6px 7px; border: 1px solid #c19a79; color: #9b5948; }
 .territory-badge.player { color: #3f715d; border-color: #7ea48e; }
+.territory-badge.bandit { color: #795577; border-color: #a77aa2; }
 .selection-description { color: #6d746c; font-size: 11px; line-height: 1.65; margin: 20px 0; max-width: 320px; }
 .settlement-meta { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #d2c5aa; border-bottom: 1px solid #d2c5aa; padding: 13px 0; gap: 7px; }
 .meta-label { display: block; text-transform: uppercase; color: #9b8b70; letter-spacing: .1em; font-size: 8px; }
@@ -478,6 +480,7 @@
 .selection-geography span { display: grid; gap: 4px; min-width: 0; }
 .selection-geography small { color: var(--edition-muted); font-family: var(--app-font-mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
 .selection-geography strong { color: var(--edition-ink); font-family: var(--app-font-serif); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.selection-pressure { color: var(--edition-ink); background: color-mix(in srgb, var(--edition-bandit) 10%, transparent); border-left: 2px solid var(--edition-bandit); font-size: 10px; line-height: 1.5; margin: 11px 0 0; padding: 8px 10px; }
 .selection-stronghold { border-bottom: 1px solid color-mix(in srgb, var(--edition-border) 72%, transparent); padding: 13px 0 12px; }
 .stronghold-tier-badge { color: var(--edition-primary); font-family: var(--app-font-mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
 .stronghold-description { color: var(--edition-muted); font-size: 9px; line-height: 1.45; margin: 0 0 10px; }
@@ -876,6 +879,7 @@ html[data-theme='parchment'] {
   --edition-water: #d2ddcf;
   --edition-player: #7d9f8d;
   --edition-rival: #bf826e;
+  --edition-bandit: #8d668b;
   --edition-neutral: #d7bd7e;
 }
 
@@ -899,6 +903,7 @@ html[data-theme='midnight'] {
   --edition-water: #21354a;
   --edition-player: #4e8879;
   --edition-rival: #ad6558;
+  --edition-bandit: #a56c9b;
   --edition-neutral: #aa8954;
 }
 
@@ -922,6 +927,7 @@ html[data-theme='meadow'] {
   --edition-water: #c7ddd2;
   --edition-player: #5d9272;
   --edition-rival: #a75e55;
+  --edition-bandit: #87658a;
   --edition-neutral: #c29b55;
 }
 

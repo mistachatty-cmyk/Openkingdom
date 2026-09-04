@@ -10,6 +10,7 @@ The Canvas edition treats the map as a connected political world rather than a d
 - **Strongholds** are optional defensive investments attached to a county. Open province → Watchpost → Bastion → Citadel adds defense, recovery, and recruitment support without making a county invulnerable.
 - **Fronts and routes** connect counties across shared borders. Fronts describe staged military movement; trade routes describe recurring commerce.
 - **Nation-states and rivals** are political owners of multiple counties. The player’s nation is one owner among several, not a replacement for the underlying county layer.
+- **Bandit-held territories** are led by the Blackroad Camp rather than a court. After the opening grace, the camp claims the weakest adjacent open county; when no open county is available, it pressures an adjacent crown county by draining local forces without immediately changing ownership.
 
 ## Future political types
 
@@ -21,6 +22,8 @@ The county layer is intentionally extensible so later campaigns can introduce:
 - **Growing or expanding entities** that can claim, split, federate, or absorb counties over time.
 
 These future types should continue to use the same readable map selection model: one focused county, one authoritative accessible index entry, and clear ownership and border affordances. A new political type should add behavior and presentation without collapsing counties, settlements, barracks, or strongholds into one generic structure.
+
+The Canvas edition authors one bandit-held county at The Pale Road. Its turn resolver is separate from nation-state rival behavior, and its claims, pressure, and owner changes are written to the campaign chronicle. County infrastructure remains attached to the county when the camp claims it, so the territorial layer stays independent from political ownership.
 
 ## Design constraints
 

@@ -14,7 +14,7 @@ export type RegionIndexItem = {
   id: string;
   chunkId?: string;
   name: string;
-  kind: 'player' | 'rival' | 'neutral';
+  kind: 'player' | 'rival' | 'bandit' | 'neutral';
   settlement: 'Village' | 'Town' | 'City';
   forces: number;
   strongholdLevel?: number;
@@ -70,7 +70,7 @@ export function CampaignPrimer({
   diplomacyEnabled,
 }: {
   selectedName: string | null;
-  selectedKind: 'player' | 'rival' | 'neutral' | null;
+  selectedKind: 'player' | 'rival' | 'bandit' | 'neutral' | null;
   commerceEnabled: boolean;
   diplomacyEnabled: boolean;
 }) {
@@ -88,7 +88,7 @@ export function CampaignPrimer({
       </p>
       <ol className="campaign-primer-steps">
         <li><span>01</span><div><strong>Inspect</strong><small>Click a province or use the province index to read its owner, settlement, forces, terrain, and nearby borders.</small></div></li>
-         <li><span>02</span><div><strong>Develop or move</strong><small>{selectedKind === 'player' ? 'Build, upgrade, or recruit here. Fortify the county when you want a stronger defensive reserve. To expand, select a neighboring border and stage soldiers from this province.' : 'Select a neighboring border to choose a player-held source, set the levy, and preview the line.'}</small></div></li>
+         <li><span>02</span><div><strong>Develop or move</strong><small>{selectedKind === 'player' ? 'Build, upgrade, or recruit here. Fortify the county when you want a stronger defensive reserve. To expand, select a neighboring border and stage soldiers from this province.' : selectedKind === 'bandit' ? 'Read the camp’s growth rule, then select a neighboring border to choose a player-held source and preview a front against the raiders.' : 'Select a neighboring border to choose a player-held source, set the levy, and preview the line.'}</small></div></li>
         <li><span>03</span><div><strong>Resolve and review</strong><small>Advance the turn to march armies and gather stores. Arrived fronts can attack; the resolution brief and chronicle explain every result.</small></div></li>
       </ol>
       <p className="campaign-primer-note">
@@ -241,6 +241,7 @@ export function ResourceStrip({ items }: { items: ResourceItem[] }) {
 function getRegionStatus(kind: RegionIndexItem['kind']) {
   if (kind === 'player') return 'Your land';
   if (kind === 'rival') return 'Rival claim';
+  if (kind === 'bandit') return 'Bandit-held';
   return 'Unclaimed';
 }
 

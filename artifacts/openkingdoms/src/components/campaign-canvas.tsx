@@ -16,7 +16,7 @@ export type CanvasRegion = {
   terrain?: 'plains' | 'forest' | 'highland' | 'marsh' | 'coast';
   landmark?: string;
   name: string;
-  kind: 'player' | 'rival' | 'neutral';
+  kind: 'player' | 'rival' | 'bandit' | 'neutral';
   settlement: 'Village' | 'Town' | 'City';
   forces: number;
   path: string;
@@ -49,6 +49,7 @@ export type CanvasPalette = {
   land: string;
   player: string;
   rival: string;
+  bandit: string;
   neutral: string;
   ink: string;
   mutedInk: string;
@@ -660,6 +661,8 @@ export function CampaignCanvas({
             ? palette.player
             : region.kind === 'rival'
               ? palette.rival
+              : region.kind === 'bandit'
+                ? palette.bandit
               : palette.neutral;
           context.strokeStyle = isSelected || isHovered ? palette.selection : isAdjacent ? palette.selection : palette.ink;
           context.lineWidth = isSelected ? 3 : isHovered ? 2.5 : isAdjacent ? 2 : detailTier === 'overview' ? 1 : 1.5;
@@ -677,7 +680,13 @@ export function CampaignCanvas({
 
         if (detailTier === 'overview') {
           context.save();
-          context.fillStyle = region.kind === 'rival' ? palette.rival : region.kind === 'player' ? bannerColor : palette.mutedInk;
+          context.fillStyle = region.kind === 'rival'
+            ? palette.rival
+            : region.kind === 'bandit'
+              ? palette.bandit
+              : region.kind === 'player'
+                ? bannerColor
+                : palette.mutedInk;
           context.beginPath();
           context.arc(region.label[0], region.label[1], region.kind === 'player' ? 6 : 3, 0, Math.PI * 2);
           context.fill();
@@ -784,6 +793,17 @@ export function CampaignCanvas({
           context.lineTo(region.label[0] + 5, region.label[1] + 46);
           context.moveTo(region.label[0] + 5, region.label[1] + 36);
           context.lineTo(region.label[0] - 5, region.label[1] + 46);
+          context.stroke();
+        }
+        if (region.kind === 'bandit') {
+          context.strokeStyle = palette.bandit;
+          context.lineWidth = 2;
+          context.beginPath();
+          context.arc(region.label[0], region.label[1] + 41, 6, 0, Math.PI * 2);
+          context.moveTo(region.label[0] - 5, region.label[1] + 41);
+          context.lineTo(region.label[0] + 5, region.label[1] + 41);
+          context.moveTo(region.label[0], region.label[1] + 36);
+          context.lineTo(region.label[0], region.label[1] + 46);
           context.stroke();
         }
         drawStrongholdMarker(context, region.label[0] - 24, region.label[1] - 20, region.strongholdLevel ?? 0, palette);

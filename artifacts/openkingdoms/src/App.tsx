@@ -102,7 +102,7 @@ import {
 } from '@/expansion-packs';
 
 type Banner = { name: string; color: string; secondary: string };
-type RegionKind = 'player' | 'rival' | 'neutral';
+type RegionKind = 'player' | 'rival' | 'bandit' | 'neutral';
 type Settlement = 'Village' | 'Town' | 'City';
 type Terrain = 'plains' | 'forest' | 'highland' | 'marsh' | 'coast';
 type Region = {
@@ -120,6 +120,7 @@ type Region = {
   path: string;
   label: [number, number];
   strongholdLevel?: StrongholdLevel;
+  banditPressure?: number;
 };
 type FrontStatus = 'staged' | 'marching' | 'arrived' | 'resolved';
 type Front = {
@@ -222,6 +223,7 @@ const themePresets: Record<ThemeKey, ThemePreset> = {
       land: '#e6d9ba',
       player: '#7d9f8d',
       rival: '#bf826e',
+      bandit: '#8d668b',
       neutral: '#d7bd7e',
       ink: '#29384f',
       mutedInk: '#685c4a',
@@ -237,6 +239,7 @@ const themePresets: Record<ThemeKey, ThemePreset> = {
       land: '#39475a',
       player: '#4e8879',
       rival: '#ad6558',
+      bandit: '#a56c9b',
       neutral: '#aa8954',
       ink: '#f1e3c5',
       mutedInk: '#d4c18e',
@@ -252,6 +255,7 @@ const themePresets: Record<ThemeKey, ThemePreset> = {
       land: '#e7e0bf',
       player: '#5d9272',
       rival: '#a75e55',
+      bandit: '#87658a',
       neutral: '#c29b55',
       ink: '#1f4038',
       mutedInk: '#536c5a',
@@ -414,7 +418,7 @@ const frontierDescriptors: FrontierDescriptor[] = [
   { id: 'north-02', name: 'Candlefen', x: 320, y: 180, kind: 'neutral', settlement: 'Village', forces: 28 },
   { id: 'north-03', name: 'Frostmere', x: 600, y: 180, kind: 'rival', settlement: 'Town', forces: 54 },
   { id: 'north-04', name: 'Ashen Crown', x: 880, y: 180, kind: 'rival', settlement: 'Town', forces: 68 },
-  { id: 'north-05', name: 'The Pale Road', x: 1160, y: 180, kind: 'neutral', settlement: 'Village', forces: 31 },
+  { id: 'north-05', name: 'The Pale Road', x: 1160, y: 180, kind: 'bandit', settlement: 'Village', forces: 31 },
   { id: 'north-06', name: 'Glimmer Pass', x: 1440, y: 180, kind: 'neutral', settlement: 'Village', forces: 26 },
   { id: 'north-07', name: 'Old Cairn', x: 1720, y: 180, kind: 'rival', settlement: 'City', forces: 112 },
   { id: 'north-08', name: 'Starfall', x: 2000, y: 180, kind: 'neutral', settlement: 'Town', forces: 45 },
@@ -458,7 +462,9 @@ const frontierRegions: Region[] = frontierDescriptors.map((descriptor) => ({
   forces: descriptor.forces,
   barracks: descriptor.settlement !== 'Village',
   adjacent: [],
-  description: `${descriptor.name} lies beyond the settled crown, a distinct place with roads, stores, and a history of its own.`,
+  description: descriptor.kind === 'bandit'
+    ? `${descriptor.name} is a bandit-held county claimed by the Blackroad Camp. Its raiders pressure neighboring roads and absorb open counties instead of following a rival court.`
+    : `${descriptor.name} lies beyond the settled crown, a distinct place with roads, stores, and a history of its own.`,
   terrain: descriptor.id.includes('north') ? 'highland' : descriptor.id.includes('west') ? 'forest' : descriptor.id.includes('east') ? 'coast' : 'plains',
   landmark: descriptor.id.endsWith('03') ? 'Waystone' : descriptor.id.endsWith('07') ? 'Watchtower' : undefined,
   path: frontierPath(descriptor.x, descriptor.y),
@@ -643,6 +649,20 @@ function hasSharedBorder(regions: Region[], firstId: string, secondId: string) {
 
 function hasFoundedKingdom(regions: Region[]) {
   return regions.filter((region) => region.kind === 'player').length >= KINGDOM_GOAL;
+}
+
+function isRegionKind(value: unknown): value is RegionKind {
+  return value === 'player' || value === 'rival' || value === 'bandit' || value === 'neutral';
+}
+
+function regionKindLabel(kind: RegionKind) {
+  return kind === 'player'
+    ? 'Under your crown'
+    : kind === 'rival'
+      ? 'Rival claim'
+      : kind === 'bandit'
+        ? 'Bandit-held'
+        : 'Unclaimed';
 }
 
 function isFrontStatus(value: unknown): value is FrontStatus {
@@ -964,6 +984,104 @@ function resolveRivalTurn({
   return { regions: nextRegions, notices: [notice] };
 }
 
+const BANDIT_OPENING_GRACE_END_TURN = 2;
+const BANDIT_MAX_FORCES = 100;
+const BANDIT_CLAIM_REINFORCEMENT = 4;
+const BANDIT_PRESSURE_LOSS = 3;
+
+type BanditTurnResult = {
+  regions: Region[];
+  notices: string[];
+};
+
+function resolveBanditTurn(regions: Region[], turn: number): BanditTurnResult {
+  if (turn <= BANDIT_OPENING_GRACE_END_TURN) return { regions, notices: [] };
+
+  const banditRegions = regions
+    .filter((region) => region.kind === 'bandit')
+    .sort((first, second) => first.id.localeCompare(second.id));
+  if (!banditRegions.length) return { regions, notices: [] };
+
+  const claim = banditRegions
+    .flatMap((bandit) =>
+      regions
+        .filter((region) => region.kind === 'neutral' && hasSharedBorder(regions, bandit.id, region.id))
+        .map((region) => ({ bandit, region })),
+    )
+    .sort((first, second) =>
+      first.region.forces - second.region.forces ||
+      first.region.id.localeCompare(second.region.id) ||
+      first.bandit.id.localeCompare(second.bandit.id),
+    )[0];
+
+  if (claim) {
+    const nextRegions = regions.map((region) => {
+      if (region.id === claim.region.id) {
+        return {
+          ...region,
+          kind: 'bandit' as const,
+          forces: Math.min(BANDIT_MAX_FORCES, region.forces + BANDIT_CLAIM_REINFORCEMENT),
+          banditPressure: 0,
+        };
+      }
+      if (region.id === claim.bandit.id) {
+        return { ...region, forces: Math.min(BANDIT_MAX_FORCES, region.forces + 2) };
+      }
+      return region;
+    });
+    return {
+      regions: nextRegions,
+      notices: [
+        `The Blackroad Camp claimed ${claim.region.name} from the open country and established a bandit-held county; its roads now answer to raiders rather than a court.`,
+      ],
+    };
+  }
+
+  const pressure = banditRegions
+    .flatMap((bandit) =>
+      regions
+        .filter((region) => region.kind === 'player' && hasSharedBorder(regions, bandit.id, region.id))
+        .map((region) => ({ bandit, region })),
+    )
+    .sort((first, second) =>
+      (first.region.banditPressure ?? 0) - (second.region.banditPressure ?? 0) ||
+      first.region.id.localeCompare(second.region.id) ||
+      first.bandit.id.localeCompare(second.bandit.id),
+    )[0];
+
+  if (pressure) {
+    const nextRegions = regions.map((region) => {
+      if (region.id === pressure.region.id) {
+        return {
+          ...region,
+          forces: Math.max(0, region.forces - BANDIT_PRESSURE_LOSS),
+          banditPressure: Math.min(3, (region.banditPressure ?? 0) + 1),
+        };
+      }
+      if (region.id === pressure.bandit.id) {
+        return { ...region, forces: Math.min(BANDIT_MAX_FORCES, region.forces + 1) };
+      }
+      return region;
+    });
+    return {
+      regions: nextRegions,
+      notices: [
+        `The Blackroad Camp pressured ${pressure.region.name}: ${BANDIT_PRESSURE_LOSS} local forces were lost to raids, but the county remains under your crown.`,
+      ],
+    };
+  }
+
+  const camp = banditRegions[0];
+  return {
+    regions: regions.map((region) =>
+      region.id === camp.id
+        ? { ...region, forces: Math.min(BANDIT_MAX_FORCES, region.forces + 2) }
+        : region,
+    ),
+    notices: [`The Blackroad Camp gathered ${camp.name}'s raiders behind its growing border.`],
+  };
+}
+
 function routeCondition(campaign: Campaign, route: TradeRoute) {
   const partner = regionById(campaign.regions, route.partnerRegionId);
   const relationship = campaign.relationships[route.partnerRegionId] ?? 'neutral';
@@ -1113,7 +1231,7 @@ function makeNewCampaign(
   return {
     edition: 'Canvas',
     worldVersion: 2,
-    featureVersion: 2,
+    featureVersion: 3,
     status: 'active',
     expansions: { ...expansions },
     nation: nation.trim() || 'The Unnamed Crown',
@@ -1125,7 +1243,12 @@ function makeNewCampaign(
     food: Math.max(0, 120 + archetype.modifiers.startingFood),
     resources: { grain: Math.max(0, 120 + archetype.modifiers.startingFood), timber: 24, iron: 12, salt: 10 },
     forces: Math.max(1, 48 + archetype.modifiers.startingForces),
-    regions: worldRegions.map((region) => ({ ...region, adjacent: [...region.adjacent], strongholdLevel: 0 as StrongholdLevel })),
+    regions: worldRegions.map((region) => ({
+      ...region,
+      adjacent: [...region.adjacent],
+      strongholdLevel: 0 as StrongholdLevel,
+      banditPressure: 0,
+    })),
     fronts: [],
     relationships: {},
     treaties: [],
@@ -1164,12 +1287,7 @@ function readCampaign(): Campaign | null {
     const regions = worldRegions.map((base) => {
       const savedRegion = savedRegions.find((region) => region.id === base.id);
       if (!savedRegion) return { ...base };
-      const savedKind =
-        savedRegion.kind === 'player' ||
-        savedRegion.kind === 'rival' ||
-        savedRegion.kind === 'neutral'
-          ? savedRegion.kind
-          : base.kind;
+      const savedKind = isRegionKind(savedRegion.kind) ? savedRegion.kind : base.kind;
       const savedSettlement =
         savedRegion.settlement === 'Village' ||
         savedRegion.settlement === 'Town' ||
@@ -1193,6 +1311,10 @@ function readCampaign(): Campaign | null {
             : base.forces,
         barracks: Boolean(savedRegion.barracks),
         strongholdLevel: normalizeStrongholdLevel(savedRegion.strongholdLevel),
+        banditPressure:
+          typeof savedRegion.banditPressure === 'number' && Number.isFinite(savedRegion.banditPressure)
+            ? Math.max(0, Math.min(3, Math.floor(savedRegion.banditPressure)))
+            : 0,
       };
     });
 
@@ -1320,7 +1442,7 @@ function readCampaign(): Campaign | null {
     return {
       edition: 'Canvas',
       worldVersion: 2,
-      featureVersion: 2,
+      featureVersion: 3,
       status: savedStatus,
       victoryTurn:
         savedStatus === 'victory' && typeof saved.victoryTurn === 'number'
@@ -2803,7 +2925,9 @@ function App() {
       commerceEnabled,
     });
     nextRegions = rivalTurn.regions;
-    const turnNotices = [...rivalTurn.notices, ...frontNotices];
+    const banditTurn = resolveBanditTurn(nextRegions, nextTurn);
+    nextRegions = banditTurn.regions;
+    const turnNotices = [...banditTurn.notices, ...rivalTurn.notices, ...frontNotices];
     const event = makeCampaignEvent(campaign, nextTurn, nextRegions, nextFronts, nextRoutes);
     const expiredRoutes = nextRoutes.filter((route) => route.status === 'expired').length;
     const income = campaign.regions.filter((region) => region.kind === 'player').length * (24 + archetype.modifiers.turnGoldBonus);
@@ -2821,6 +2945,7 @@ function App() {
           : `Granary: +${nextFood - campaign.food} food from the provinces.`,
         frontNotices.length ? `Army movements: ${frontNotices.join(' ')}` : 'Army movements: no fronts changed position.',
         rivalTurn.notices.length ? `Rival activity: ${rivalTurn.notices.join(' ')}` : 'Rival activity: no visible border action.',
+        banditTurn.notices.length ? `Bandit activity: ${banditTurn.notices.join(' ')}` : 'Bandit activity: no visible camp action.',
         expiredTreaties.length
           ? `Court: ${treatyExpiryNotices.join(' ')}`
           : diplomacyEnabled
@@ -3126,7 +3251,7 @@ function App() {
              >
               <div className="map-head">
                   <div className="map-head-copy"><div className="panel-kicker">The realm at a glance</div><h2>{mapExpanded ? 'Command the border' : 'Read the border'}</h2><p>Land and ownership come first. Select a province to reveal legal neighboring targets, roads, orders, and courts that matter there.</p></div>
-                 <div className="map-head-side"><span className="map-view-tag">Focused political map</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Roads in focus</span><span className="legend-item"><i className="legend-dot front" /> Active front</span><span className="legend-item"><i className="legend-dot adjacent" /> Adjacent border</span></div></div>
+                 <div className="map-head-side"><span className="map-view-tag">Focused political map</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot bandit" /> Bandit-held</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Roads in focus</span><span className="legend-item"><i className="legend-dot front" /> Active front</span><span className="legend-item"><i className="legend-dot adjacent" /> Adjacent border</span></div></div>
                   <button
                     ref={mapExpandButtonRef}
                     type="button"
@@ -3188,7 +3313,7 @@ function App() {
                   <>
                     <div className="selection-top">
                       <div><div className="panel-kicker">Province dossier</div><h2 className="selection-name" data-testid={`text-selected-region-${selected.id}`}>{selected.name}</h2></div>
-                      <span className={`territory-badge ${selected.kind === 'player' ? 'player' : ''}`}>{selected.kind === 'player' ? 'Under your crown' : selected.kind === 'rival' ? 'Rival claim' : 'Unclaimed'}</span>
+                      <span className={`territory-badge ${selected.kind}`}>{regionKindLabel(selected.kind)}</span>
                     </div>
                     <p className="selection-description">{selected.description}</p>
                     <div className="settlement-meta">
@@ -3198,9 +3323,19 @@ function App() {
                        <div><span className="meta-label">Stronghold</span><strong className="meta-value" data-testid={`value-stronghold-${selected.id}`}>{getStrongholdTier(selected.strongholdLevel).shortName}</strong></div>
                     </div>
                     <div className="selection-geography">
+                      <span><small>Political type</small><strong>{selected.kind === 'bandit' ? 'Bandit camp' : selected.kind === 'rival' ? 'Nation-state rival' : selected.kind === 'player' ? 'Your nation' : 'Open county'}</strong></span>
                       <span><small>Terrain</small><strong>{selected.terrain ? selected.terrain : 'Open country'}</strong></span>
                       <span><small>Landmark</small><strong>{selected.landmark ?? 'No landmark recorded'}</strong></span>
                     </div>
+                    {selected.banditPressure ? (
+                      <p className="selection-pressure" data-testid={`text-bandit-pressure-${selected.id}`}>
+                        Bandit pressure: {selected.banditPressure} / 3. Raiders are draining local forces, but this county remains yours until a front changes its owner.
+                      </p>
+                    ) : selected.kind === 'bandit' ? (
+                      <p className="selection-pressure" data-testid={`text-bandit-rule-${selected.id}`}>
+                        Bandit rule: the Blackroad Camp grows by claiming adjacent open counties each turn before pressuring a neighboring crown.
+                      </p>
+                    ) : null}
                     <section className="selection-stronghold" aria-labelledby="selection-stronghold-title" data-testid={`panel-stronghold-${selected.id}`}>
                       <div className="selection-subheading">
                         <span className="meta-label" id="selection-stronghold-title">County stronghold</span>
@@ -3268,7 +3403,7 @@ function App() {
                                 onClick={() => selectRegion(neighbor.id)}
                                aria-label={`Inspect adjacent province ${neighbor.name}`}
                              >
-                               <span><strong>{neighbor.name}</strong><small>{neighbor.kind === 'player' ? 'Your land' : neighbor.kind === 'rival' ? 'Rival claim' : 'Unclaimed'} · {neighbor.forces} forces</small></span>
+                               <span><strong>{neighbor.name}</strong><small>{regionKindLabel(neighbor.kind)} · {neighbor.forces} forces</small></span>
                                <em>{legalTarget ? (selected.kind === 'player' ? 'Target' : 'Source') : 'Border'}</em>
                              </button>
                            );
@@ -3380,9 +3515,10 @@ function App() {
         <div className="guide-overlay" onClick={(event) => { if (event.target === event.currentTarget) setGuideOpen(false); }}>
           <aside className="guide-drawer" role="dialog" aria-modal="true" aria-label="Field guide">
             <div className="guide-header"><div><div className="panel-kicker">A primer for sovereigns</div><h2>Field guide</h2></div><button ref={guideCloseRef} className="close-button" onClick={() => setGuideOpen(false)} aria-label="Close guide" data-testid="button-close-guide"><X size={20} /></button></div>
-            <div className="guide-section"><h3>Read the chart</h3><p>This is one connected continent, drawn as a field chart. Green provinces answer to your crown; red provinces are rival claims; gold provinces are open to persuasion.</p></div>
+             <div className="guide-section"><h3>Read the chart</h3><p>This is one connected continent, drawn as a field chart. Green provinces answer to your crown; red provinces are rival claims; purple provinces are bandit-held; gold provinces are open to persuasion.</p></div>
               <div className="guide-section"><h3>Grow your realm</h3><ul className="guide-list"><li><Coins size={14} /> <span>Advance a turn to gather gold. {commerceEnabled ? 'Commerce is active, so held provinces also produce and consume grain, timber, iron, and salt.' : 'The baseline keeps stores steady while your core settlement and military loop stays readable.'}</span></li><li><Hammer size={14} /> <span>Barracks cost 80 gold and make each recruitment call worth 16 soldiers instead of 10.</span></li><li><Landmark size={14} /> <span>Upgrade villages into towns and towns into cities. Each charter costs more than the last and improves local output.</span></li></ul></div>
-             <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival or unclaimed province to name a front, choose its source province, and stage an exact levy. Review the projected strength before committing the march.</p></div>
+             <div className="guide-section"><h3>Redraw a border</h3><p>Select a rival, bandit-held, or unclaimed province to name a front, choose its source province, and stage an exact levy. Review the projected strength before committing the march.</p></div>
+              <div className="guide-section"><h3>Watch the Blackroad Camp</h3><p>The Blackroad Camp is not a nation-state rival: after the opening grace, it claims the weakest adjacent open county, then pressures neighboring crown counties by draining local forces. Its claims and raids are recorded in the dossier and chronicle.</p></div>
               <div className="guide-section"><h3>Optional systems</h3><p><strong>{commerceEnabled ? 'Commerce & Industry is active.' : 'Commerce & Industry is dormant.'}</strong> {commerceEnabled ? 'Charter routes to move goods and earn income; shortages, upkeep, and border conditions can change their status.' : 'Turn it on from Campaign systems to add production, consumption, shortages, and convoys. Dormant route history is preserved.'}</p><p><strong>{diplomacyEnabled ? 'Diplomacy & Alliances is active.' : 'Diplomacy & Alliances is dormant.'}</strong> {diplomacyEnabled ? 'Choose a court posture, spend influence on envoys and treaty proposals, and manage the consequences of trust, aid, peace, and embargoes.' : 'Turn it on from Campaign systems to add court posture, envoys, influence, treaties, and alliance consequences. Dormant court history is preserved.'}</p></div>
               {diplomacyEnabled && <div className="guide-section"><h3>Keep your word</h3><p>Non-aggression pacts protect a border, alliances can send aid to a neighboring front, and peace terms reopen a war-torn crossing. Breaking a treaty costs reputation and makes that court hostile.</p></div>}
             <div className="guide-section"><h3>Remember</h3><p>There is no perfect opening. The chronicle saves to this browser after every decision, so you may return whenever the map calls.</p></div>

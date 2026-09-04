@@ -25,7 +25,13 @@ async function clickCanvasPoint(
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => window.localStorage.clear());
+  await page.addInitScript(() => {
+    if (window.sessionStorage.getItem("openkingdoms-test-initialized") === "true") {
+      return;
+    }
+    window.localStorage.clear();
+    window.sessionStorage.setItem("openkingdoms-test-initialized", "true");
+  });
 });
 
 test("keeps zoom, keyboard pan, reset, and pointer hit testing synchronized", async ({
@@ -98,6 +104,47 @@ test("accessible region selection keeps the index, canvas, and dossier aligned",
     "Saltmere Coast",
   );
   await expect(canvas).toBeVisible();
+});
+
+test("bandit-held counties grow through the shared map and persist their labels", async ({
+  page,
+}) => {
+  await startCampaign(page);
+
+  await page.getByTestId("input-region-search").fill("Pale Road");
+  const banditButton = page.getByTestId("button-select-region-north-05");
+  await expect(banditButton).toContainText("Bandit-held");
+  await banditButton.click();
+  await expect(page.getByTestId("text-selected-region-north-05")).toHaveText(
+    "The Pale Road",
+  );
+  await expect(page.getByTestId("text-bandit-rule-north-05")).toContainText(
+    "grows by claiming adjacent open counties",
+  );
+
+  await page.getByTestId("button-advance-turn").click();
+  await page.locator('[data-testid^="button-event-choice-"]').first().click();
+  await page.getByTestId("button-advance-turn").click();
+
+  await page.getByTestId("input-region-search").fill("Glimmer Pass");
+  await expect(page.getByTestId("button-select-region-north-06")).toContainText(
+    "Bandit-held",
+  );
+  await expect(page.getByTestId("panel-turn-summary")).toContainText(
+    "Blackroad Camp claimed Glimmer Pass",
+  );
+
+  await page.reload();
+  await page.getByTestId("input-region-search").fill("Glimmer Pass");
+  const claimedButton = page.getByTestId("button-select-region-north-06");
+  await expect(claimedButton).toContainText("Bandit-held");
+  await claimedButton.click();
+  await expect(page.getByTestId("text-selected-region-north-06")).toHaveText(
+    "Glimmer Pass",
+  );
+  await expect(page.getByTestId("text-bandit-rule-north-06")).toContainText(
+    "pressuring a neighboring crown",
+  );
 });
 
 test("keeps the map controls and accessible index usable at mobile size", async ({
