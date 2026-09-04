@@ -484,7 +484,7 @@
 .selection-stronghold { border-bottom: 1px solid color-mix(in srgb, var(--edition-border) 72%, transparent); padding: 13px 0 12px; }
 .stronghold-tier-badge { color: var(--edition-primary); font-family: var(--app-font-mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
 .stronghold-description { color: var(--edition-muted); font-size: 9px; line-height: 1.45; margin: 0 0 10px; }
-.stronghold-metrics { display: grid; gap: 7px; grid-template-columns: repeat(3, 1fr); margin-bottom: 11px; }
+.stronghold-metrics { display: grid; gap: 7px; grid-template-columns: repeat(5, 1fr); margin-bottom: 11px; }
 .stronghold-metrics span { display: grid; gap: 3px; }
 .stronghold-metrics small { color: var(--edition-muted); font-family: var(--app-font-mono); font-size: 8px; text-transform: uppercase; }
 .stronghold-metrics strong { color: var(--edition-player); font-family: var(--app-font-mono); font-size: 11px; }
@@ -2169,6 +2169,7 @@ html.reduce-motion .feedback-aura { display: none; }
 .embargo-button.is-active { border-color: var(--edition-primary); color: var(--edition-primary); }
 
 @media (max-width: 720px) {
+  .stronghold-metrics { grid-template-columns: repeat(3, 1fr); }
   .map-canvas-wrap { height: clamp(260px, 58vw, 350px); }
   .accessible-region-grid { grid-template-columns: 1fr; }
   .campaign-primer-steps { grid-template-columns: 1fr; }
@@ -2214,6 +2215,7 @@ html.reduce-motion .feedback-aura { display: none; }
 }
 
 @media (max-width: 460px) {
+  .stronghold-metrics { grid-template-columns: repeat(2, 1fr); }
   .main-area { padding-left: 10px; padding-right: 10px; }
   .page-kicker { line-height: 1.5; }
   .page-title { font-size: clamp(28px, 9vw, 36px); }

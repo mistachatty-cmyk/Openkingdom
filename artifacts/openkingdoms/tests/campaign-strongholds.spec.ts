@@ -75,6 +75,79 @@ test("lets a peaceful player ignore strongholds and keep resolving turns", async
   await expect(page.getByTestId("button-advance-turn")).toBeEnabled();
 });
 
+test("previews Citadel tradeoffs and charges upkeep without closing the peaceful path", async ({
+  page,
+}) => {
+  await startCampaign(page);
+  await page.evaluate(() => {
+    const raw = window.localStorage.getItem("openkingdoms-campaign");
+    if (!raw) throw new Error("Expected a campaign save.");
+    const campaign = JSON.parse(raw);
+    campaign.gold = 600;
+    window.localStorage.setItem("openkingdoms-campaign", JSON.stringify(campaign));
+  });
+  await page.reload();
+
+  await page.getByTestId("button-upgrade-stronghold").click();
+  await page.getByTestId("button-upgrade-stronghold").click();
+  await expect(page.getByTestId("stronghold-action-reason")).toContainText(
+    "10 gold upkeep each turn",
+  );
+  await expect(page.getByTestId("stronghold-action-reason")).toContainText(
+    "10 local soldiers remain committed",
+  );
+  await page.getByTestId("button-upgrade-stronghold").click();
+  await expect(page.getByTestId("value-stronghold-aurelian")).toHaveText(
+    "Citadel",
+  );
+  await expect(page.getByTestId("panel-stronghold-aurelian")).toContainText(
+    "−10 / turn",
+  );
+
+  await page.getByTestId("input-region-search").fill("Bracken");
+  await page.getByTestId("button-select-region-bracken").click();
+  await expect(page.getByTestId("select-front-source")).toContainText(
+    "Aurelian Reach · 38 available",
+  );
+
+  await page.getByTestId("button-advance-turn").click();
+  await expect(page.getByTestId("text-current-turn")).toHaveText("2");
+  await expect(page.getByTestId("value-gold")).toHaveText("114");
+  await expect(page.getByTestId("panel-turn-summary")).toContainText(
+    "−10 stronghold upkeep",
+  );
+});
+
+test("migrates an older Citadel save with its new ongoing obligations intact", async ({
+  page,
+}) => {
+  await startCampaign(page);
+  await page.evaluate(() => {
+    const raw = window.localStorage.getItem("openkingdoms-campaign");
+    if (!raw) throw new Error("Expected a campaign save.");
+    const campaign = JSON.parse(raw);
+    campaign.featureVersion = 3;
+    campaign.gold = 20;
+    campaign.regions = campaign.regions.map((region: { id: string; strongholdLevel?: number }) =>
+      region.id === "aurelian" ? { ...region, strongholdLevel: 3 } : region,
+    );
+    window.localStorage.setItem("openkingdoms-campaign", JSON.stringify(campaign));
+  });
+  await page.reload();
+
+  await expect(page.getByTestId("value-stronghold-aurelian")).toHaveText(
+    "Citadel",
+  );
+  await expect(page.getByTestId("panel-stronghold-aurelian")).toContainText(
+    "10 held",
+  );
+  await page.getByTestId("button-advance-turn").click();
+  await expect(page.getByTestId("value-gold")).toHaveText("34");
+  await expect(page.getByTestId("panel-turn-summary")).toContainText(
+    "−10 stronghold upkeep",
+  );
+});
+
 test("explains the full progression and locks a county at Citadel", async ({
   page,
 }) => {

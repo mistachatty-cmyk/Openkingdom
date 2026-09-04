@@ -632,6 +632,16 @@ function strongholdUpgradeCost(level: unknown) {
   return getNextStrongholdTier(level)?.cost ?? 0;
 }
 
+function strongholdUpkeepForRegions(regions: Region[]) {
+  return regions
+    .filter((region) => region.kind === 'player')
+    .reduce((total, region) => total + getStrongholdTier(region.strongholdLevel).upkeep, 0);
+}
+
+function deployableForces(region: Region) {
+  return Math.max(0, region.forces - getStrongholdTier(region.strongholdLevel).garrison);
+}
+
 function strongholdStatusReason(region: Region, campaign: Campaign) {
   const level = normalizeStrongholdLevel(region.strongholdLevel);
   if (level >= MAX_STRONGHOLD_LEVEL) return 'This province has reached its maximum stronghold level.';
@@ -639,6 +649,12 @@ function strongholdStatusReason(region: Region, campaign: Campaign) {
   if (!next) return 'No further stronghold tier is available.';
   if (campaign.gold < next.cost) return `You need ${next.cost} gold to raise this ${next.shortName.toLowerCase()}.`;
   return undefined;
+}
+
+function strongholdUpgradePreview(region: Region) {
+  const next = getNextStrongholdTier(region.strongholdLevel);
+  if (!next) return undefined;
+  return `Next tier: ${next.name}. It adds +${next.defense} defense, costs ${next.cost} gold to build, and requires -${next.upkeep} gold upkeep each turn${next.garrison ? `; ${next.garrison} local soldiers remain committed to its garrison` : '; no permanent garrison commitment'}.`;
 }
 
 function hasSharedBorder(regions: Region[], firstId: string, secondId: string) {
@@ -1231,7 +1247,7 @@ function makeNewCampaign(
   return {
     edition: 'Canvas',
     worldVersion: 2,
-    featureVersion: 3,
+    featureVersion: 4,
     status: 'active',
     expansions: { ...expansions },
     nation: nation.trim() || 'The Unnamed Crown',
@@ -1442,7 +1458,7 @@ function readCampaign(): Campaign | null {
     return {
       edition: 'Canvas',
       worldVersion: 2,
-      featureVersion: 3,
+      featureVersion: 4,
       status: savedStatus,
       victoryTurn:
         savedStatus === 'victory' && typeof saved.victoryTurn === 'number'
@@ -1754,8 +1770,8 @@ function App() {
       const source = regionById(campaign.regions, front.sourceRegionId);
       const target = regionById(campaign.regions, front.targetRegionId);
       if (!source || !target) return [];
-      const projectedDefendingForces = source.forces + front.committedForces;
       const targetStronghold = getStrongholdTier(target.strongholdLevel);
+      const sourceStronghold = getStrongholdTier(source.strongholdLevel);
        const allySupport = diplomacyEnabled && campaign.militaryAid > 0 && campaign.treaties.some((treaty) =>
         treaty.kind === 'defensive-alliance' &&
         treaty.partnerRegionId !== target.id &&
@@ -1779,12 +1795,15 @@ function App() {
         targetRegionId: target.id,
         sourceName: source.name,
         targetName: target.name,
-        sourceForces: source.forces,
+        sourceForces: deployableForces(source),
         committedForces: front.committedForces,
         targetForces: target.forces,
          strongholdLevel: targetStronghold.level,
          strongholdDefense: targetStronghold.defense,
-        projectedDefendingForces,
+        strongholdUpkeep: targetStronghold.upkeep,
+        strongholdGarrison: targetStronghold.garrison,
+        sourceGarrison: sourceStronghold.garrison,
+        projectedDefendingForces: deployableForces(source) + front.committedForces,
         allySupport,
         supply: source.kind === 'player' && source.adjacent.includes(target.id) ? 'Supplied' : 'Broken supply',
          status: front.status,
@@ -1841,7 +1860,7 @@ function App() {
           (front) => front.sourceRegionId === region.id && front.targetRegionId === selectedTarget.id,
         ),
       )
-      .map((region) => ({ id: region.id, name: region.name, forces: region.forces }));
+      .map((region) => ({ id: region.id, name: region.name, forces: deployableForces(region) }));
   }, [campaign, selectedTarget]);
 
   const economy = useMemo(() => (campaign && commerceEnabled ? realmEconomy(campaign.regions) : { production: emptyLedger(), consumption: emptyLedger() }), [campaign?.regions, commerceEnabled]);
@@ -2249,7 +2268,7 @@ function App() {
         ? {
           ...current.lastTurnSummary,
           headline: `${event.title} resolved`,
-          items: [...current.lastTurnSummary.items, `Event choice: ${outcome}`].slice(0, 8),
+          items: [...current.lastTurnSummary.items.slice(0, 7), `Event choice: ${outcome}`],
         }
         : undefined;
 
@@ -2347,7 +2366,7 @@ function App() {
     }
     const committedForces = Math.max(
       0,
-      Math.min(source.forces, Math.floor(Number.isFinite(frontDraftAllocation) ? frontDraftAllocation : 0)),
+      Math.min(deployableForces(source), Math.floor(Number.isFinite(frontDraftAllocation) ? frontDraftAllocation : 0)),
     );
     const name = frontDraftName.trim().slice(0, 48) || `${selectedTarget.name} Front`;
     const travelTurns = frontTravelDuration(source, selectedTarget);
@@ -2392,7 +2411,7 @@ function App() {
       const source = regionById(current.regions, front.sourceRegionId);
       if (!source || source.kind !== 'player') return current;
       const requested = Number.isFinite(desiredForces) ? Math.floor(desiredForces) : 0;
-      const next = Math.max(0, Math.min(source.forces + front.committedForces, requested));
+      const next = Math.max(0, Math.min(deployableForces(source) + front.committedForces, requested));
       const delta = next - front.committedForces;
       nextCommitted = next;
       changed = delta !== 0;
@@ -2676,6 +2695,7 @@ function App() {
         items: [
           `Stronghold: ${selected.name} advanced to ${next.name}.`,
           `Defense: +${next.defense} defending strength · recovery +${next.recovery} · recruitment +${next.recruitment}.`,
+          `Commitment: −${next.upkeep} gold each turn${next.garrison ? ` · ${next.garrison} soldiers remain in the local garrison` : ''}.`,
           `Treasury: −${next.cost} gold for the county works.`,
         ],
       },
@@ -2931,7 +2951,8 @@ function App() {
     const event = makeCampaignEvent(campaign, nextTurn, nextRegions, nextFronts, nextRoutes);
     const expiredRoutes = nextRoutes.filter((route) => route.status === 'expired').length;
     const income = campaign.regions.filter((region) => region.kind === 'player').length * (24 + archetype.modifiers.turnGoldBonus);
-    const goldDelta = income + routeIncome - routeUpkeep;
+    const strongholdUpkeep = strongholdUpkeepForRegions(campaign.regions);
+    const goldDelta = income + routeIncome - routeUpkeep - strongholdUpkeep;
     const nextFood = commerceEnabled
       ? nextResources.grain
       : campaign.food + campaign.regions.filter((region) => region.kind === 'player').length * 8;
@@ -2939,7 +2960,7 @@ function App() {
       turn: nextTurn,
       headline: turnNotices.length ? 'The border answers your orders.' : 'A quiet turn across the realm.',
       items: [
-        `Treasury: ${goldDelta >= 0 ? '+' : ''}${goldDelta} gold${commerceEnabled ? ` · ${activeRoutes} active route${activeRoutes === 1 ? '' : 's'}` : ''}.`,
+        `Treasury: ${goldDelta >= 0 ? '+' : ''}${goldDelta} gold${commerceEnabled ? ` · ${activeRoutes} active route${activeRoutes === 1 ? '' : 's'}` : ''}${strongholdUpkeep ? ` · −${strongholdUpkeep} stronghold upkeep` : ''}.`,
         commerceEnabled
           ? `Stores: ${nextResources.grain - campaign.resources.grain >= 0 ? '+' : ''}${nextResources.grain - campaign.resources.grain} grain${nextShortages.length ? ` · shortage in ${nextShortages.join(', ')}` : ' · no shortages'}.`
           : `Granary: +${nextFood - campaign.food} food from the provinces.`,
@@ -2985,7 +3006,7 @@ function App() {
       log: [
         ...treatyExpiryNotices,
         ...turnNotices,
-        `Turn ${nextTurn}: +${goldDelta} gold${commerceEnabled ? `, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}` : ', baseline stores steady'}.`,
+        `Turn ${nextTurn}: ${goldDelta >= 0 ? '+' : ''}${goldDelta} gold${strongholdUpkeep ? ` after −${strongholdUpkeep} stronghold upkeep` : ''}${commerceEnabled ? `, ${activeRoutes} routes active${nextShortages.length ? `; shortage in ${nextShortages.join(', ')}` : ''}` : ', baseline stores steady'}.`,
         ...current.log,
       ],
     }));
@@ -3346,6 +3367,8 @@ function App() {
                         <span><small>Defense</small><strong>+{getStrongholdTier(selected.strongholdLevel).defense}</strong></span>
                         <span><small>Recovery</small><strong>+{getStrongholdTier(selected.strongholdLevel).recovery}</strong></span>
                         <span><small>Recruitment</small><strong>+{getStrongholdTier(selected.strongholdLevel).recruitment}</strong></span>
+                        <span><small>Upkeep</small><strong>−{getStrongholdTier(selected.strongholdLevel).upkeep} / turn</strong></span>
+                        <span><small>Garrison</small><strong>{getStrongholdTier(selected.strongholdLevel).garrison} held</strong></span>
                       </div>
                       {selected.kind === 'player' ? (
                         <>
@@ -3361,8 +3384,9 @@ function App() {
                           <p className="action-help" data-testid="stronghold-action-reason">
                             {campaignComplete
                               ? 'The completed chronicle is read-only.'
-                              : strongholdStatusReason(selected, campaign) ??
-                                `Next tier: ${getNextStrongholdTier(selected.strongholdLevel)?.name}. It adds +${getNextStrongholdTier(selected.strongholdLevel)?.defense} defense and costs ${strongholdUpgradeCost(selected.strongholdLevel)} gold.`}
+                              : [strongholdStatusReason(selected, campaign), strongholdUpgradePreview(selected)]
+                                .filter(Boolean)
+                                .join(' ')}
                           </p>
                         </>
                       ) : (

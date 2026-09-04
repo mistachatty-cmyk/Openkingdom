@@ -18,6 +18,9 @@ export type FrontSummary = {
   targetForces: number;
   strongholdLevel: number;
   strongholdDefense: number;
+  strongholdUpkeep: number;
+  strongholdGarrison: number;
+  sourceGarrison: number;
   projectedDefendingForces: number;
   allySupport: number;
   supply: 'Supplied' | 'Broken supply';
@@ -224,9 +227,12 @@ export function FrontDossier({
         <div><dt>Source reserve</dt><dd>{front.sourceForces}</dd></div>
         <div><dt>Committed attack</dt><dd>{front.committedForces}</dd></div>
         <div><dt>Source after staging</dt><dd>{front.projectedDefendingForces}</dd></div>
-              <div><dt>Defender strength</dt><dd>{front.targetForces + front.strongholdDefense}</dd></div>
-              <div><dt>County stronghold</dt><dd>{front.strongholdDefense ? `+${front.strongholdDefense} defense` : 'None'}</dd></div>
-              <div><dt>Ally support</dt><dd>{front.allySupport ? `+${front.allySupport}` : 'None'}</dd></div>
+        <div><dt>Defender strength</dt><dd>{front.targetForces + front.strongholdDefense}</dd></div>
+        <div><dt>County stronghold</dt><dd>{front.strongholdDefense ? `+${front.strongholdDefense} defense` : 'None'}</dd></div>
+        <div><dt>Garrison commitment</dt><dd>{front.strongholdGarrison ? `${front.strongholdGarrison} held locally` : 'None'}</dd></div>
+        <div><dt>Stronghold upkeep</dt><dd>{front.strongholdUpkeep ? `-${front.strongholdUpkeep} gold / turn` : 'None'}</dd></div>
+        <div><dt>Source garrison</dt><dd>{front.sourceGarrison ? `${front.sourceGarrison} held locally` : 'None'}</dd></div>
+        <div><dt>Ally support</dt><dd>{front.allySupport ? `+${front.allySupport}` : 'None'}</dd></div>
         <div><dt>Supply status</dt><dd>{front.supply}</dd></div>
          <div><dt>Order status</dt><dd>{frontStatusLabel(front.status)}</dd></div>
          <div><dt>Travel time</dt><dd>{front.status === 'arrived' ? 'Arrived' : `${front.travelTurns} turn${front.travelTurns === 1 ? '' : 's'} remaining`}</dd></div>
