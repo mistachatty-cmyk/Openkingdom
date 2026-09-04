@@ -67,6 +67,7 @@ type CampaignCanvasProps = {
   onSelect: (id: string) => void;
   onSelectFront: (id: string) => void;
   onSelectRoute: (partnerRegionId: string) => void;
+  onMiss?: () => void;
 };
 
 const VIEW_WIDTH = 760;
@@ -275,6 +276,7 @@ export function CampaignCanvas({
   onSelect,
   onSelectFront,
   onSelectRoute,
+  onMiss,
 }: CampaignCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{
@@ -284,8 +286,17 @@ export function CampaignCanvas({
     startView: MapView;
     moved: boolean;
   } | null>(null);
+  const pointersRef = useRef(new Map<number, { clientX: number; clientY: number }>());
+  const pinchRef = useRef<{
+    distance: number;
+    anchorX: number;
+    anchorY: number;
+    startView: MapView;
+  } | null>(null);
+  const suppressTapRef = useRef(false);
   const [view, setView] = useState<MapView>(STARTING_VIEW);
   const [isDragging, setIsDragging] = useState(false);
+  const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null);
   const [viewAnnouncement, setViewAnnouncement] = useState(
     'Realm board view at 54 percent zoom. Select a province, then drag to pan or use arrow keys to move.',
   );
@@ -371,7 +382,7 @@ export function CampaignCanvas({
         x: anchorX / scale - focusX,
         y: anchorY / scale - focusY,
       });
-      return selectedRegion ? keepPointVisible(next, selectedRegion.label) : next;
+      return next;
     });
     setViewAnnouncement(
       announcement ?? `Map zoom set to ${Math.round(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextScale)) * 100)} percent.`,
@@ -524,6 +535,7 @@ export function CampaignCanvas({
           pathCacheRef.current.set(region.id, path);
         }
         const isSelected = region.id === selectedId;
+        const isHovered = region.id === hoveredRegionId;
          const selectedRegion = selectedId ? regionLookup.get(selectedId) : undefined;
          const isAdjacent = Boolean(selectedRegion?.adjacent.includes(region.id));
         context.save();
@@ -533,15 +545,15 @@ export function CampaignCanvas({
             : region.kind === 'rival'
               ? palette.rival
               : palette.neutral;
-         context.strokeStyle = isSelected ? palette.selection : isAdjacent ? palette.selection : palette.ink;
-         context.lineWidth = isSelected ? 3 : isAdjacent ? 2 : detailTier === 'overview' ? 1 : 1.5;
+          context.strokeStyle = isSelected || isHovered ? palette.selection : isAdjacent ? palette.selection : palette.ink;
+          context.lineWidth = isSelected ? 3 : isHovered ? 2.5 : isAdjacent ? 2 : detailTier === 'overview' ? 1 : 1.5;
          if (isAdjacent && !isSelected) {
            context.setLineDash([5, 4]);
          }
          context.setLineDash([]);
-        if (isSelected) {
+        if (isSelected || isHovered) {
           context.shadowColor = palette.selection;
-          context.shadowBlur = 10;
+          context.shadowBlur = isSelected ? 10 : 6;
         }
         context.fill(path);
         context.stroke(path);
@@ -732,7 +744,7 @@ export function CampaignCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [bannerColor, coastlinePath, fronts, getVisibleRegions, palette, regionLookup, regions, routes, selectedFrontId, selectedId, spatialIndex, view]);
+  }, [bannerColor, coastlinePath, fronts, getVisibleRegions, hoveredRegionId, palette, regionLookup, regions, routes, selectedFrontId, selectedId, spatialIndex, view]);
 
   const selectAtPoint = (event: PointerEvent<HTMLCanvasElement>) => {
     const interactionStartedAt = performance.now();
