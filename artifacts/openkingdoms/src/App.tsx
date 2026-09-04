@@ -73,6 +73,19 @@ import {
   ExpansionPackControl,
   ExpansionPackSelector,
 } from '@/components/expansion-pack-selector';
+import { FoundingPreview } from '@/components/founding-preview';
+import {
+  DEFAULT_EMBLEM_ID,
+  DEFAULT_NATION_ARCHETYPE_ID,
+  EMBLEMS,
+  NATION_ARCHETYPES,
+  getEmblem,
+  getNationArchetype,
+  isEmblemId,
+  isNationArchetypeId,
+  type EmblemId,
+  type NationArchetypeId,
+} from '@/nation-archetypes';
 import {
   ALL_EXPANSIONS,
   BASELINE_EXPANSIONS,
@@ -139,12 +152,14 @@ type CampaignStatus = 'active' | 'victory';
 type Campaign = {
   edition: 'Canvas';
   worldVersion: 2;
-  featureVersion: 1;
+  featureVersion: number;
   status: CampaignStatus;
   victoryTurn?: number;
   expansions: ExpansionSelection;
   nation: string;
   banner: Banner;
+  archetypeId: NationArchetypeId;
+  emblemId: EmblemId;
   turn: number;
   gold: number;
   food: number;
@@ -1058,26 +1073,35 @@ function postureDescription(posture: DiplomaticPosture) {
       : 'A steady court with no special diplomatic tilt.';
 }
 
-function makeNewCampaign(nation: string, banner: Banner, expansions: ExpansionSelection): Campaign {
+function makeNewCampaign(
+  nation: string,
+  banner: Banner,
+  expansions: ExpansionSelection,
+  archetypeId: NationArchetypeId,
+  emblemId: EmblemId,
+): Campaign {
+  const archetype = getNationArchetype(archetypeId);
   return {
     edition: 'Canvas',
     worldVersion: 2,
-    featureVersion: 1,
+    featureVersion: 2,
     status: 'active',
     expansions: { ...expansions },
     nation: nation.trim() || 'The Unnamed Crown',
     banner,
+    archetypeId,
+    emblemId,
     turn: 1,
-    gold: 145,
-    food: 120,
-    resources: { grain: 120, timber: 24, iron: 12, salt: 10 },
-    forces: 48,
+    gold: Math.max(0, 145 + archetype.modifiers.startingGold),
+    food: Math.max(0, 120 + archetype.modifiers.startingFood),
+    resources: { grain: Math.max(0, 120 + archetype.modifiers.startingFood), timber: 24, iron: 12, salt: 10 },
+    forces: Math.max(1, 48 + archetype.modifiers.startingForces),
     regions: worldRegions.map((region) => ({ ...region, adjacent: [...region.adjacent] })),
     fronts: [],
     relationships: {},
     treaties: [],
     tradeRoutes: [],
-    reputation: 50,
+    reputation: Math.max(0, Math.min(100, 50 + archetype.modifiers.startingReputation)),
     militaryAid: 0,
     embargoes: [],
     diplomacy: defaultDiplomacy(),
@@ -1085,6 +1109,11 @@ function makeNewCampaign(nation: string, banner: Banner, expansions: ExpansionSe
     lastTurnSummary: undefined,
     activeEvent: undefined,
   };
+}
+
+function settlementCharterCost(settlement: Settlement, archetypeId: NationArchetypeId) {
+  const baseCost: Record<Settlement, number> = { Village: 110, Town: 190, City: 9999 };
+  return Math.max(1, baseCost[settlement] - getNationArchetype(archetypeId).modifiers.settlementCostDiscount);
 }
 
 function readCampaign(): Campaign | null {
@@ -1261,7 +1290,7 @@ function readCampaign(): Campaign | null {
     return {
       edition: 'Canvas',
       worldVersion: 2,
-      featureVersion: 1,
+      featureVersion: 2,
       status: savedStatus,
       victoryTurn:
         savedStatus === 'victory' && typeof saved.victoryTurn === 'number'
@@ -1276,6 +1305,8 @@ function readCampaign(): Campaign | null {
         typeof saved.banner.secondary === 'string'
           ? saved.banner
           : banners[0],
+      archetypeId: isNationArchetypeId(saved.archetypeId) ? saved.archetypeId : DEFAULT_NATION_ARCHETYPE_ID,
+      emblemId: isEmblemId(saved.emblemId) ? saved.emblemId : DEFAULT_EMBLEM_ID,
       turn: typeof saved.turn === 'number' && saved.turn > 0 ? saved.turn : 1,
       gold: typeof saved.gold === 'number' && saved.gold >= 0 ? saved.gold : 145,
       food: typeof saved.food === 'number' && saved.food >= 0 ? saved.food : 120,
@@ -1468,6 +1499,8 @@ function App() {
   const [campaign, setCampaign] = useState<Campaign | null>(() => readCampaign());
   const [nationName, setNationName] = useState('');
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [nationArchetypeId, setNationArchetypeId] = useState<NationArchetypeId>(DEFAULT_NATION_ARCHETYPE_ID);
+  const [emblemId, setEmblemId] = useState<EmblemId>(DEFAULT_EMBLEM_ID);
   const [newExpansions, setNewExpansions] = useState<ExpansionSelection>({ ...BASELINE_EXPANSIONS });
   const [selectedId, setSelectedId] = useState<string | null>('aurelian');
   const [guideOpen, setGuideOpen] = useState(false);
@@ -1559,6 +1592,7 @@ function App() {
   const canvasPalette = themePresets[theme].canvas;
   const diplomacyEnabled = campaign ? isExpansionEnabled(campaign.expansions, 'diplomacy') : false;
   const commerceEnabled = campaign ? isExpansionEnabled(campaign.expansions, 'commerce') : false;
+  const activeArchetype = getNationArchetype(campaign?.archetypeId ?? nationArchetypeId);
   const frontSummaries = useMemo<FrontSummary[]>(() => {
     if (!campaign) return [];
     return campaign.fronts.flatMap((front) => {
@@ -2087,7 +2121,7 @@ function App() {
   };
 
   const startCampaign = () => {
-    const next = makeNewCampaign(nationName, banners[bannerIndex], newExpansions);
+    const next = makeNewCampaign(nationName, banners[bannerIndex], newExpansions, nationArchetypeId, emblemId);
     setCampaign(next);
     setSelectedId('aurelian');
     announce(`${next.nation} enters the chronicle.`, false, 'welcome');
@@ -2098,6 +2132,8 @@ function App() {
     localStorage.removeItem('openkingdoms-campaign');
     setCampaign(null);
     setNationName('');
+    setNationArchetypeId(DEFAULT_NATION_ARCHETYPE_ID);
+    setEmblemId(DEFAULT_EMBLEM_ID);
     setSelectedId('aurelian');
     announce('The map has been cleared.');
   };
@@ -2387,7 +2423,7 @@ function App() {
       partnerRegionId: selectedTarget.id,
       exportResource: tradeDraftExport,
       importResource: tradeDraftImport,
-      income: 16 + (source.settlement === 'City' ? 8 : source.settlement === 'Town' ? 4 : 0),
+        income: 16 + (source.settlement === 'City' ? 8 : source.settlement === 'Town' ? 4 : 0) + activeArchetype.modifiers.tradeIncomeBonus,
       upkeep: 4,
       remainingTurns: 6,
       risk: source.barracks ? 14 : 22,
@@ -2446,9 +2482,8 @@ function App() {
 
   const upgradeSettlement = () => {
     if (!guardCampaignActive(campaign) || !selected || selected.kind !== 'player') return;
-    const costs: Record<Settlement, number> = { Village: 110, Town: 190, City: 9999 };
     const nextSettlement: Record<Settlement, Settlement> = { Village: 'Town', Town: 'City', City: 'City' };
-    const cost = costs[selected.settlement];
+    const cost = settlementCharterCost(selected.settlement, campaign.archetypeId);
     if (selected.settlement === 'City') return announce('A city is the highest form of settlement.', true);
     if (campaign.gold < cost) return announce(`You need ${cost} gold to fund this charter.`, true);
     updateCampaign((current) => ({
@@ -2468,7 +2503,7 @@ function App() {
     if (!guardCampaignActive(campaign) || !selected || selected.kind !== 'player') return;
     const cost = 25;
     if (campaign.gold < cost || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)) return announce('Not enough gold or grain to call a new levy.', true);
-    const bonus = selected.barracks ? 16 : 10;
+    const bonus = (selected.barracks ? 16 : 10) + activeArchetype.modifiers.recruitmentBonus;
     updateCampaign((current) => ({
       ...current,
       gold: current.gold - cost,
@@ -2606,6 +2641,7 @@ function App() {
       return announce('Resolve the event at the event desk before advancing another turn.', true);
     }
     const nextTurn = campaign.turn + 1;
+    const archetype = getNationArchetype(campaign.archetypeId);
     const currentEconomy = commerceEnabled ? realmEconomy(campaign.regions) : { production: emptyLedger(), consumption: emptyLedger() };
     const nextResources = { ...campaign.resources };
     if (commerceEnabled) {
@@ -2702,7 +2738,7 @@ function App() {
     const turnNotices = [...rivalTurn.notices, ...frontNotices];
     const event = makeCampaignEvent(campaign, nextTurn, nextRegions, nextFronts, nextRoutes);
     const expiredRoutes = nextRoutes.filter((route) => route.status === 'expired').length;
-    const income = campaign.regions.filter((region) => region.kind === 'player').length * 24;
+    const income = campaign.regions.filter((region) => region.kind === 'player').length * (24 + archetype.modifiers.turnGoldBonus);
     const goldDelta = income + routeIncome - routeUpkeep;
     const nextFood = commerceEnabled
       ? nextResources.grain
@@ -2745,7 +2781,7 @@ function App() {
       diplomacy: diplomacyEnabled
         ? {
           ...current.diplomacy,
-          influence: Math.min(100, current.diplomacy.influence + 1),
+          influence: Math.min(100, current.diplomacy.influence + 1 + archetype.modifiers.influencePerTurn),
           envoyCooldowns: Object.fromEntries(
             Object.entries(current.diplomacy.envoyCooldowns)
               .map(([id, turns]) => [id, turns - 1])
@@ -2768,6 +2804,8 @@ function App() {
   };
 
   if (!campaign) {
+    const selectedFoundingArchetype = getNationArchetype(nationArchetypeId);
+    const selectedBanner = banners[bannerIndex];
     return (
       <main className="start-screen">
         <div className="start-glow" />
@@ -2794,42 +2832,94 @@ function App() {
               Every border begins as a line of ink. Name your nation, raise its standard, and draw a future across the continent.
             </p>
           </section>
-          <section className="start-form start-form-delay ink-rise">
-            <div className="form-label">The founding decree</div>
-            <label htmlFor="nation-name" className="sr-only">Nation name</label>
-            <input
-              id="nation-name"
-              className="name-input"
-              value={nationName}
-              onChange={(event) => setNationName(event.target.value)}
-              placeholder="Name your nation"
-              maxLength={28}
-              data-testid="input-nation-name"
+          <div className="start-form-column start-form-delay ink-rise">
+            <FoundingPreview
+              archetype={selectedFoundingArchetype}
+              banner={selectedBanner}
+              emblemId={emblemId}
+              reducedMotion={reducedMotion}
             />
-            <div className="banner-section">
-              <div className="form-label">Choose your standard</div>
-              <div className="banner-row">
-                {banners.map((banner, index) => (
-                  <button
-                    key={banner.name}
-                    className={`banner-choice ${bannerIndex === index ? 'is-selected' : ''}`}
-                    onClick={() => setBannerIndex(index)}
-                    aria-label={`${banner.name} banner`}
-                    data-testid={`button-banner-${banner.name.toLowerCase()}`}
-                  >
-                    <span className="banner-swatch" style={{ background: `linear-gradient(135deg, ${banner.color} 55%, ${banner.secondary} 56%)` }} />
-                  </button>
-                ))}
+            <section className="start-form">
+              <div className="form-label">The founding decree</div>
+              <label htmlFor="nation-name" className="sr-only">Nation name</label>
+              <input
+                id="nation-name"
+                className="name-input"
+                value={nationName}
+                onChange={(event) => setNationName(event.target.value)}
+                placeholder="Name your nation"
+                maxLength={28}
+                data-testid="input-nation-name"
+              />
+              <div className="banner-section">
+                <div className="form-label">Choose your standard</div>
+                <div className="banner-row">
+                  {banners.map((banner, index) => (
+                    <button
+                      type="button"
+                      key={banner.name}
+                      className={`banner-choice ${bannerIndex === index ? 'is-selected' : ''}`}
+                      onClick={() => setBannerIndex(index)}
+                      aria-label={`${banner.name} banner`}
+                      aria-pressed={bannerIndex === index}
+                      data-testid={`button-banner-${banner.name.toLowerCase()}`}
+                    >
+                      <span className="banner-swatch" style={{ background: `linear-gradient(135deg, ${banner.color} 55%, ${banner.secondary} 56%)` }} />
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <ExpansionPackSelector selection={newExpansions} onChange={setNewExpansions} />
-            <button className="button-primary found-button" onClick={startCampaign} data-testid="button-found-nation">
-              Found the nation <ArrowRight size={15} />
-            </button>
-            <p className="mono save-note">
-              Your campaign is saved locally in this browser
-            </p>
-          </section>
+              <fieldset className="archetype-section">
+                <legend className="form-label">Choose a nation identity</legend>
+                <p className="founding-help">Each charter changes the opening years without changing the victory path.</p>
+                <div className="archetype-grid" role="radiogroup" aria-label="Nation archetypes">
+                  {NATION_ARCHETYPES.map((archetype) => (
+                    <button
+                      type="button"
+                      key={archetype.id}
+                      className={`archetype-choice ${nationArchetypeId === archetype.id ? 'is-selected' : ''}`}
+                      onClick={() => setNationArchetypeId(archetype.id)}
+                      aria-pressed={nationArchetypeId === archetype.id}
+                      data-testid={`button-archetype-${archetype.id}`}
+                    >
+                      <span className="archetype-choice-heading"><strong>{archetype.name}</strong><span>{archetype.shortName}</span></span>
+                      <small>{archetype.description}</small>
+                      <em>{archetype.bonus}</em>
+                    </button>
+                  ))}
+                </div>
+                <div className="founding-summary" data-testid="founding-archetype-summary">
+                  <span className="founding-summary-mark" style={{ color: selectedFoundingArchetype.accent }}>◆</span>
+                  <span><strong>{selectedFoundingArchetype.name}</strong> · {selectedFoundingArchetype.bonus}. {selectedFoundingArchetype.tradeoff}.</span>
+                </div>
+              </fieldset>
+              <fieldset className="emblem-section">
+                <legend className="form-label">Compose your emblem</legend>
+                <div className="emblem-row" role="radiogroup" aria-label="Flag emblems">
+                  {EMBLEMS.map((emblem) => (
+                    <button
+                      type="button"
+                      key={emblem.id}
+                      className={`emblem-choice ${emblemId === emblem.id ? 'is-selected' : ''}`}
+                      onClick={() => setEmblemId(emblem.id)}
+                      aria-label={`${emblem.name} emblem`}
+                      aria-pressed={emblemId === emblem.id}
+                      data-testid={`button-emblem-${emblem.id}`}
+                    >
+                      <span aria-hidden="true">{emblem.glyph}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <ExpansionPackSelector selection={newExpansions} onChange={setNewExpansions} />
+              <button className="button-primary found-button" onClick={startCampaign} data-testid="button-found-nation">
+                Found the nation <ArrowRight size={15} />
+              </button>
+              <p className="mono save-note">
+                Your campaign is saved locally in this browser
+              </p>
+            </section>
+          </div>
         </div>
       </main>
     );
@@ -2859,7 +2949,12 @@ function App() {
           <header className="topbar">
             <div>
                <div className="page-kicker">{campaignComplete ? 'Completed chronicle · Review edition' : 'Canvas edition · Continental chronicle'} · Turn {String(campaign.turn).padStart(2, '0')}</div>
-              <h1 className="page-title">{campaign.nation}</h1>
+              <h1 className="page-title"><span className="campaign-emblem" aria-label={`${getEmblem(campaign.emblemId).name} emblem`}>{getEmblem(campaign.emblemId).glyph}</span>{campaign.nation}</h1>
+              <div className="campaign-identity-line" data-testid="campaign-identity">
+                <span>{getNationArchetype(campaign.archetypeId).name}</span>
+                <span>·</span>
+                <span>{getEmblem(campaign.emblemId).name} emblem</span>
+              </div>
             </div>
                <div className="turn-control">
               <ExpansionPackControl
@@ -3082,10 +3177,10 @@ function App() {
                       <div className="action-stack">
                           <button className="button-quiet action-button" onClick={buildBarracks} disabled={campaignComplete || selected.barracks || campaign.gold < 80} data-testid="button-build-barracks"><span><Hammer size={14} /> {selected.barracks ? 'Barracks established' : 'Build barracks'}</span><span className="action-cost">{selected.barracks ? <Check size={13} /> : '80 gold'}</span></button>
                           {!selected.barracks && <p className="action-help">Raises each recruitment call from 10 to 16 soldiers.</p>}
-                          <button className="button-quiet action-button" onClick={upgradeSettlement} disabled={campaignComplete || selected.settlement === 'City' || campaign.gold < (selected.settlement === 'Village' ? 110 : 190)} data-testid="button-upgrade-settlement"><span><Landmark size={14} /> {selected.settlement === 'City' ? 'City charter complete' : `Upgrade to ${selected.settlement === 'Village' ? 'town' : 'city'}`}</span><span className="action-cost">{selected.settlement === 'City' ? <Check size={13} /> : `${selected.settlement === 'Village' ? 110 : 190} gold`}</span></button>
+                           <button className="button-quiet action-button" onClick={upgradeSettlement} disabled={campaignComplete || selected.settlement === 'City' || campaign.gold < settlementCharterCost(selected.settlement, campaign.archetypeId)} data-testid="button-upgrade-settlement"><span><Landmark size={14} /> {selected.settlement === 'City' ? 'City charter complete' : `Upgrade to ${selected.settlement === 'Village' ? 'town' : 'city'}`}</span><span className="action-cost">{selected.settlement === 'City' ? <Check size={13} /> : `${settlementCharterCost(selected.settlement, campaign.archetypeId)} gold`}</span></button>
                           {selected.settlement !== 'City' && <p className="action-help">Increases this province's output and supports a stronger long-term base.</p>}
-                          <button className="button-primary action-button" onClick={recruitForces} disabled={campaignComplete || campaign.gold < 25 || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">+{selected.barracks ? 16 : 10} · 25 gold · 10 food{commerceEnabled ? ' · 10 grain' : ''}</span></button>
-                          <p className="action-help">{selected.barracks ? 'Barracks make this levy worth 16 soldiers.' : 'A field levy adds 10 soldiers; build barracks before repeated calls.'}{commerceEnabled && campaign.resources.grain < 10 ? ' Grain is the current constraint.' : ''}</p>
+                           <button className="button-primary action-button" onClick={recruitForces} disabled={campaignComplete || campaign.gold < 25 || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">+{(selected.barracks ? 16 : 10) + activeArchetype.modifiers.recruitmentBonus} · 25 gold · 10 food{commerceEnabled ? ' · 10 grain' : ''}</span></button>
+                           <p className="action-help">{selected.barracks ? `Barracks make this levy worth ${16 + activeArchetype.modifiers.recruitmentBonus} soldiers.` : `A field levy adds ${10 + activeArchetype.modifiers.recruitmentBonus} soldiers; build barracks before repeated calls.`}{commerceEnabled && campaign.resources.grain < 10 ? ' Grain is the current constraint.' : ''}</p>
                       </div>
                     ) : (
                       <>
