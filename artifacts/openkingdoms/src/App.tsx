@@ -34,9 +34,12 @@ import {
 } from '@/components/campaign-canvas';
 import {
   AccessibleRegionIndex,
+  CampaignPrimer,
   DispatchList,
+  MilestonePanel,
   ResourceStrip,
   TurnSummaryPanel,
+  type CampaignMilestone,
   type TurnSummary,
 } from '@/components/campaign-panels';
 import {
@@ -1432,6 +1435,51 @@ function App() {
   const economyShortages = commerceEnabled
     ? RESOURCE_TYPES.filter((resource) => (campaign?.resources[resource] ?? 0) < economy.consumption[resource])
     : [];
+  const selectedLocalEconomy = selected ? economyForRegion(selected) : null;
+  const selectedLocalShortages = selectedLocalEconomy && commerceEnabled
+    ? RESOURCE_TYPES.filter((resource) => (campaign?.resources[resource] ?? 0) < selectedLocalEconomy.consumption[resource])
+    : [];
+  const selectedAdjacentRegions = selected
+    ? selected.adjacent
+      .map((regionId) => regionById(campaign?.regions ?? [], regionId))
+      .filter((region): region is Region => Boolean(region))
+    : [];
+  const campaignMilestones = useMemo<CampaignMilestone[]>(() => {
+    if (!campaign) return [];
+    const held = playerRegions.length;
+    const developed = playerRegions.filter((region) => region.settlement !== 'Village').length;
+    const hasArmyOrder = campaign.fronts.length > 0 || campaign.log.some((entry) => entry.includes('established with'));
+    const buildMilestone = (milestone: Omit<CampaignMilestone, 'complete'>): CampaignMilestone => ({
+      ...milestone,
+      complete: milestone.progress >= milestone.target,
+    });
+    return [
+      buildMilestone({
+        id: 'hold-the-core',
+        title: 'Hold the core',
+        description: 'Grow from your founding province into a secure foothold.',
+        progress: held,
+        target: KINGDOM_GOAL,
+        detail: `${held} / ${KINGDOM_GOAL} held`,
+      }),
+      buildMilestone({
+        id: 'shape-a-stronghold',
+        title: 'Shape a stronghold',
+        description: 'Upgrade one settlement so your economy and levies can compound.',
+        progress: Math.min(1, developed),
+        target: 1,
+        detail: developed ? 'Town or city ready' : 'Upgrade a village',
+      }),
+      buildMilestone({
+        id: 'put-an-army-on-the-road',
+        title: 'Put an army on the road',
+        description: 'Establish a border order and learn the rhythm of staging, marching, and arrival.',
+        progress: Math.min(1, hasArmyOrder ? 1 : 0),
+        target: 1,
+        detail: hasArmyOrder ? 'Border order recorded' : 'Select a neighboring border',
+      }),
+    ];
+  }, [campaign, playerRegions]);
   const routeViews = useMemo<TradeRouteView[]>(() => {
     if (!campaign || !commerceEnabled) return [];
     return campaign.tradeRoutes.flatMap((route) => {
@@ -2119,6 +2167,18 @@ function App() {
         return [region];
       }),
       fronts: current.fronts.filter((candidate) => candidate.id !== frontId),
+       lastTurnSummary: {
+         turn: current.turn,
+         headline: won ? `The border changed at ${target.name}.` : `${target.name} held the border.`,
+         items: [
+           `Territory: ${target.name} · ${won ? 'rival claim → your crown' : 'rival claim retained'}.`,
+           `Army: ${casualties} losses · ${won ? `${survivors} survivors now hold the province` : `${retreating} soldiers returned to ${source.name}`}.`,
+           `Strength: ${attackStrength} attacking${supportingForces ? ` including ${supportingForces} ally support` : ''} vs ${target.forces} defending.`,
+           won
+             ? `New choice: ${target.name} is a Village without barracks; secure it before pressing another border.`
+             : `Recovery: reinforce ${source.name}, recruit again, or revise another front before the next attack.`,
+         ],
+       },
       log: [
         victoryReached
           ? `Victory at ${target.name}; the first kingdom is founded on turn ${current.turn}.`
@@ -2418,7 +2478,7 @@ function App() {
                 setOpen={setAppearanceOpen}
               />
               <div className="turn-count"><span>Current turn</span><strong data-testid="text-current-turn">{campaign.turn}</strong></div>
-              <button className="button-primary" onClick={advanceTurn} disabled={campaignComplete} data-testid="button-advance-turn"><ArrowRight size={15} /><span>{campaignComplete ? 'Chronicle complete' : 'Advance turn'}</span></button>
+              <button className="button-primary" onClick={advanceTurn} disabled={campaignComplete} data-testid="button-advance-turn"><ArrowRight size={15} /><span>{campaignComplete ? 'Chronicle complete' : 'Resolve turn'}</span></button>
             </div>
           </header>
 
@@ -2458,7 +2518,14 @@ function App() {
                <div><strong>{campaignComplete ? 'Review chronicle' : 'Resolve turn'}</strong><small>{campaignComplete ? 'Kingdom complete' : frontSummaries.length ? `${frontSummaries.length} front${frontSummaries.length === 1 ? '' : 's'} in motion` : 'No fronts staged yet'}</small></div>
              </div>
            </section>
+            <CampaignPrimer
+              selectedName={selected?.name ?? null}
+              selectedKind={selected?.kind ?? null}
+              commerceEnabled={commerceEnabled}
+              diplomacyEnabled={diplomacyEnabled}
+            />
            {campaign.lastTurnSummary && <TurnSummaryPanel summary={campaign.lastTurnSummary} />}
+            <MilestonePanel milestones={campaignMilestones} />
           {commerceEnabled ? (
             <EconomyPanel
               stocks={campaign.resources}
@@ -2479,8 +2546,8 @@ function App() {
           <div className="content-grid">
             <section className="map-panel map-in">
               <div className="map-head">
-                 <div className="map-head-copy"><div className="panel-kicker">The realm at a glance</div><h2>Read the border</h2><p>Land and ownership come first. Select a province to reveal the roads, orders, and courts that matter there.</p></div>
-                 <div className="map-head-side"><span className="map-view-tag">Focused political map</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Roads in focus</span><span className="legend-item"><i className="legend-dot front" /> Active front</span></div></div>
+                 <div className="map-head-copy"><div className="panel-kicker">The realm at a glance</div><h2>Read the border</h2><p>Land and ownership come first. Select a province to reveal legal neighboring targets, roads, orders, and courts that matter there.</p></div>
+                 <div className="map-head-side"><span className="map-view-tag">Focused political map</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Roads in focus</span><span className="legend-item"><i className="legend-dot front" /> Active front</span><span className="legend-item"><i className="legend-dot adjacent" /> Adjacent border</span></div></div>
               </div>
               <div className="map-canvas-wrap" id="map-help">
                 <CampaignCanvas
@@ -2557,11 +2624,58 @@ function App() {
                       <span><small>Terrain</small><strong>{selected.terrain ? selected.terrain : 'Open country'}</strong></span>
                       <span><small>Landmark</small><strong>{selected.landmark ?? 'No landmark recorded'}</strong></span>
                     </div>
+                     {selectedLocalEconomy && (
+                       <div className="selection-economy" aria-label={`Local economy for ${selected.name}`}>
+                         <div className="selection-subheading"><span className="meta-label">Local economy</span><span className="mono">{commerceEnabled ? 'per turn' : 'when Commerce awakens'}</span></div>
+                         <div className="economy-ledger">
+                           {RESOURCE_TYPES.map((resource) => (
+                             <span key={resource}>
+                               <small>{resource}</small>
+                               <strong>+{selectedLocalEconomy.production[resource]}</strong>
+                               <em>−{selectedLocalEconomy.consumption[resource]}</em>
+                             </span>
+                           ))}
+                         </div>
+                         <p className="selection-economy-note">
+                           {commerceEnabled
+                             ? selectedLocalShortages.length
+                               ? `Local shortage: ${selectedLocalShortages.join(', ')}. Keep stores above upkeep before expanding.`
+                               : 'No local shortages. Output is shaped by settlement level; consumption rises as the province grows.'
+                             : 'The baseline levy is active now. Recruitment costs 25 gold and 10 food; these local specialties become strategic when Commerce &amp; Industry is enabled.'}
+                         </p>
+                       </div>
+                     )}
+                     <div className="selection-borders" aria-labelledby="selection-borders-title">
+                       <div className="selection-subheading"><span className="meta-label" id="selection-borders-title">Adjacent borders</span><span className="mono">{selectedAdjacentRegions.length} connected</span></div>
+                       <div className="border-chip-list">
+                         {selectedAdjacentRegions.map((neighbor) => {
+                           const legalTarget = selected.kind === 'player' ? neighbor.kind !== 'player' : neighbor.kind === 'player';
+                           return (
+                             <button
+                               type="button"
+                               key={neighbor.id}
+                               className={`border-chip ${legalTarget ? 'is-legal' : ''}`}
+                               onClick={() => {
+                                 setActiveFrontId(null);
+                                 setSelectedId(neighbor.id);
+                               }}
+                               aria-label={`Inspect adjacent province ${neighbor.name}`}
+                             >
+                               <span><strong>{neighbor.name}</strong><small>{neighbor.kind === 'player' ? 'Your land' : neighbor.kind === 'rival' ? 'Rival claim' : 'Unclaimed'} · {neighbor.forces} forces</small></span>
+                               <em>{legalTarget ? (selected.kind === 'player' ? 'Target' : 'Source') : 'Border'}</em>
+                             </button>
+                           );
+                         })}
+                       </div>
+                     </div>
                     {selected.kind === 'player' ? (
                       <div className="action-stack">
-                         <button className="button-quiet action-button" onClick={buildBarracks} disabled={campaignComplete || selected.barracks || campaign.gold < 80} data-testid="button-build-barracks"><span><Hammer size={14} /> {selected.barracks ? 'Barracks established' : 'Build barracks'}</span><span className="action-cost">{selected.barracks ? <Check size={13} /> : '80 gold'}</span></button>
-                         <button className="button-quiet action-button" onClick={upgradeSettlement} disabled={campaignComplete || selected.settlement === 'City' || campaign.gold < (selected.settlement === 'Village' ? 110 : 190)} data-testid="button-upgrade-settlement"><span><Landmark size={14} /> {selected.settlement === 'City' ? 'City charter complete' : `Upgrade to ${selected.settlement === 'Village' ? 'town' : 'city'}`}</span><span className="action-cost">{selected.settlement === 'City' ? <Check size={13} /> : `${selected.settlement === 'Village' ? 110 : 190} gold`}</span></button>
-                         <button className="button-primary action-button" onClick={recruitForces} disabled={campaignComplete || campaign.gold < 25 || campaign.food < 10} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">25 gold · 10 food</span></button>
+                          <button className="button-quiet action-button" onClick={buildBarracks} disabled={campaignComplete || selected.barracks || campaign.gold < 80} data-testid="button-build-barracks"><span><Hammer size={14} /> {selected.barracks ? 'Barracks established' : 'Build barracks'}</span><span className="action-cost">{selected.barracks ? <Check size={13} /> : '80 gold'}</span></button>
+                          {!selected.barracks && <p className="action-help">Raises each recruitment call from 10 to 16 soldiers.</p>}
+                          <button className="button-quiet action-button" onClick={upgradeSettlement} disabled={campaignComplete || selected.settlement === 'City' || campaign.gold < (selected.settlement === 'Village' ? 110 : 190)} data-testid="button-upgrade-settlement"><span><Landmark size={14} /> {selected.settlement === 'City' ? 'City charter complete' : `Upgrade to ${selected.settlement === 'Village' ? 'town' : 'city'}`}</span><span className="action-cost">{selected.settlement === 'City' ? <Check size={13} /> : `${selected.settlement === 'Village' ? 110 : 190} gold`}</span></button>
+                          {selected.settlement !== 'City' && <p className="action-help">Increases this province's output and supports a stronger long-term base.</p>}
+                          <button className="button-primary action-button" onClick={recruitForces} disabled={campaignComplete || campaign.gold < 25 || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">+{selected.barracks ? 16 : 10} · 25 gold · 10 food{commerceEnabled ? ' · 10 grain' : ''}</span></button>
+                          <p className="action-help">{selected.barracks ? 'Barracks make this levy worth 16 soldiers.' : 'A field levy adds 10 soldiers; build barracks before repeated calls.'}{commerceEnabled && campaign.resources.grain < 10 ? ' Grain is the current constraint.' : ''}</p>
                       </div>
                     ) : (
                       <>

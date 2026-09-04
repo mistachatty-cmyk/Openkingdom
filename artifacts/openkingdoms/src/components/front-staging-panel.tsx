@@ -31,7 +31,7 @@ function frontStatusLabel(status: FrontSummary['status']) {
 function frontTimingLabel(status: FrontSummary['status'], travelTurns: number) {
   if (status === 'arrived') return 'Army arrived · attack may be ordered';
   if (status === 'marching') return `${travelTurns} turn${travelTurns === 1 ? '' : 's'} until arrival`;
-  if (status === 'staged') return `Staged · ${travelTurns} turn${travelTurns === 1 ? '' : 's'} until arrival`;
+  if (status === 'staged') return `Staged · resolves into a march next turn · ${travelTurns} turn${travelTurns === 1 ? '' : 's'} until arrival`;
   return 'Order resolved';
 }
 
@@ -107,7 +107,7 @@ export function FrontPlanner({
   const safeAllocation = Number.isFinite(allocation) ? Math.max(0, Math.min(allocation, maxAllocation)) : 0;
 
   return (
-    <section className="front-planner" aria-labelledby="front-planner-title">
+    <section className="front-planner" aria-labelledby="front-planner-title" data-testid="panel-front-planner">
       <div className="front-section-heading">
         <div>
           <div className="panel-kicker">Border command</div>
@@ -115,6 +115,7 @@ export function FrontPlanner({
         </div>
         <span className="front-target"><ArrowRight size={12} aria-hidden="true" /> {targetName}</span>
       </div>
+      <p className="front-instructions">Choose a player-held source, stage a levy, then advance the turn to march. The attack order unlocks when the army arrives; you can revise or recall it before then.</p>
       <label className="front-field">
         <span>Front name</span>
         <input
@@ -218,9 +219,9 @@ export function FrontDossier({
       </div>
       <p className="front-route">{front.sourceName} <ArrowRight size={13} aria-hidden="true" /> {front.targetName}</p>
       <dl className="front-metrics">
-        <div><dt>Available in source</dt><dd>{front.sourceForces}</dd></div>
-        <div><dt>Committed here</dt><dd>{front.committedForces}</dd></div>
-        <div><dt>Defending after change</dt><dd>{front.projectedDefendingForces}</dd></div>
+        <div><dt>Source reserve</dt><dd>{front.sourceForces}</dd></div>
+        <div><dt>Committed attack</dt><dd>{front.committedForces}</dd></div>
+        <div><dt>Source after staging</dt><dd>{front.projectedDefendingForces}</dd></div>
               <div><dt>Defender strength</dt><dd>{front.targetForces}</dd></div>
               <div><dt>Ally support</dt><dd>{front.allySupport ? `+${front.allySupport}` : 'None'}</dd></div>
         <div><dt>Supply status</dt><dd>{front.supply}</dd></div>
@@ -260,11 +261,11 @@ export function FrontDossier({
       </div>
       <p className="front-preview">
         {front.outcome === 'Strong advantage'
-          ? `Your ${safeAllocation} soldiers should break the ${front.targetName} line.`
+          ? `${safeAllocation} committed${front.allySupport ? ` + ${front.allySupport} support` : ''} should break the ${front.targetName} line.`
           : front.outcome === 'Uncertain'
           ? `The line may hold. Add soldiers for a stronger advantage over ${front.targetName}.`
             : front.outcome === 'Outmatched'
-              ? `${front.targetName} has more defenders than this front can currently field.`
+              ? `${front.targetName} has ${front.targetForces} defenders. This order needs ${Math.max(1, front.targetForces + 1 - safeAllocation - front.allySupport)} more soldiers to edge past the line.`
               : 'Stage soldiers to preview the outcome before committing the attack.'}
       </p>
       <div className="front-action-row">

@@ -524,6 +524,8 @@ export function CampaignCanvas({
           pathCacheRef.current.set(region.id, path);
         }
         const isSelected = region.id === selectedId;
+         const selectedRegion = selectedId ? regionLookup.get(selectedId) : undefined;
+         const isAdjacent = Boolean(selectedRegion?.adjacent.includes(region.id));
         context.save();
         context.fillStyle =
           region.kind === 'player'
@@ -531,8 +533,11 @@ export function CampaignCanvas({
             : region.kind === 'rival'
               ? palette.rival
               : palette.neutral;
-        context.strokeStyle = palette.ink;
-        context.lineWidth = isSelected ? 3 : detailTier === 'overview' ? 1 : 1.5;
+         context.strokeStyle = isSelected ? palette.selection : isAdjacent ? palette.selection : palette.ink;
+         context.lineWidth = isSelected ? 3 : isAdjacent ? 2 : detailTier === 'overview' ? 1 : 1.5;
+         if (isAdjacent && !isSelected) {
+           context.setLineDash([5, 4]);
+         }
          context.setLineDash([]);
         if (isSelected) {
           context.shadowColor = palette.selection;

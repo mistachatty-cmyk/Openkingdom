@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { ArrowRight, Check, CircleAlert, Flag, Route, Swords, Wheat } from 'lucide-react';
+import { ArrowRight, Check, CircleAlert, Flag, Landmark, Route, Swords, Wheat } from 'lucide-react';
 
 export type ResourceItem = {
   label: string;
@@ -24,6 +24,79 @@ export type TurnSummary = {
   headline: string;
   items: string[];
 };
+
+export type CampaignMilestone = {
+  id: string;
+  title: string;
+  description: string;
+  progress: number;
+  target: number;
+  detail: string;
+  complete: boolean;
+};
+
+export function CampaignPrimer({
+  selectedName,
+  selectedKind,
+  commerceEnabled,
+  diplomacyEnabled,
+}: {
+  selectedName: string | null;
+  selectedKind: 'player' | 'rival' | 'neutral' | null;
+  commerceEnabled: boolean;
+  diplomacyEnabled: boolean;
+}) {
+  return (
+    <section className="campaign-primer" aria-labelledby="campaign-primer-title" data-testid="panel-campaign-primer">
+      <div className="campaign-primer-heading">
+        <div>
+          <div className="panel-kicker">Your first five minutes</div>
+          <h2 id="campaign-primer-title">How to move the realm</h2>
+        </div>
+        <Landmark size={18} aria-hidden="true" />
+      </div>
+      <p className="campaign-primer-intro">
+        Inspect {selectedName ? <strong>{selectedName}</strong> : 'a province'}, choose one clear action, then resolve a turn and read what changed.
+      </p>
+      <ol className="campaign-primer-steps">
+        <li><span>01</span><div><strong>Inspect</strong><small>Click a province or use the province index to read its owner, settlement, forces, terrain, and nearby borders.</small></div></li>
+        <li><span>02</span><div><strong>Develop or move</strong><small>{selectedKind === 'player' ? 'Build, upgrade, or recruit here. To expand, select a neighboring border and stage soldiers from this province.' : 'Select a neighboring border to choose a player-held source, set the levy, and preview the line.'}</small></div></li>
+        <li><span>03</span><div><strong>Resolve and review</strong><small>Advance the turn to march armies and gather stores. Arrived fronts can attack; the resolution brief and chronicle explain every result.</small></div></li>
+      </ol>
+      <p className="campaign-primer-note">
+        {commerceEnabled ? 'Commerce is active: production, consumption, shortages, and routes change your choices.' : 'Baseline stores stay steady while you learn the border loop.'}
+        {diplomacyEnabled ? ' Courts and treaties can protect or close a border.' : ' Diplomacy can be awakened later from Campaign systems.'}
+      </p>
+    </section>
+  );
+}
+
+export function MilestonePanel({ milestones }: { milestones: CampaignMilestone[] }) {
+  return (
+    <section className="panel milestone-panel" aria-labelledby="milestone-panel-title" data-testid="panel-campaign-milestones">
+      <div className="milestone-heading">
+        <div>
+          <div className="panel-kicker">Chapter markers</div>
+          <h2 id="milestone-panel-title">The road to a kingdom</h2>
+        </div>
+        <span className="mono">{milestones.filter((milestone) => milestone.complete).length} of {milestones.length} complete</span>
+      </div>
+      <div className="milestone-list">
+        {milestones.map((milestone) => (
+          <div className={`milestone-row ${milestone.complete ? 'is-complete' : ''}`} key={milestone.id} data-testid={`milestone-${milestone.id}`}>
+            <span className="milestone-mark" aria-hidden="true">{milestone.complete ? <Check size={12} /> : <span />}</span>
+            <div className="milestone-copy">
+              <strong>{milestone.title}</strong>
+              <small>{milestone.description}</small>
+              <div className="milestone-progress" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round((milestone.progress / milestone.target) * 100))}%` }} /></div>
+            </div>
+            <em>{milestone.detail}</em>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export function TurnSummaryPanel({ summary }: { summary: TurnSummary }) {
   return (
