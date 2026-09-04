@@ -25,6 +25,33 @@ export type TurnSummary = {
   items: string[];
 };
 
+export type CampaignEventCategory =
+  | 'harvest'
+  | 'settlement'
+  | 'border'
+  | 'scouting'
+  | 'trade'
+  | 'diplomacy'
+  | 'readiness';
+
+export type CampaignEventChoice = {
+  id: string;
+  label: string;
+  description: string;
+};
+
+export type CampaignEvent = {
+  id: string;
+  turn: number;
+  category: CampaignEventCategory;
+  title: string;
+  description: string;
+  prompt: string;
+  subjectRegionId?: string;
+  subjectName?: string;
+  choices: CampaignEventChoice[];
+};
+
 export type CampaignMilestone = {
   id: string;
   title: string;
@@ -123,6 +150,68 @@ export function TurnSummaryPanel({ summary }: { summary: TurnSummary }) {
             <div className="turn-summary-item" key={`${summary.turn}-${index}`}>
               <Icon size={13} aria-hidden="true" />
               <span>{item}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+const eventCategoryLabels: Record<CampaignEventCategory, string> = {
+  harvest: 'Harvest report',
+  settlement: 'Settlement life',
+  border: 'Border pressure',
+  scouting: 'Scouting report',
+  trade: 'Trade dispatch',
+  diplomacy: 'Court affairs',
+  readiness: 'Military readiness',
+};
+
+export function CampaignEventPanel({
+  event,
+  onChoose,
+  getChoiceDisabledReason,
+  readOnly = false,
+}: {
+  event: CampaignEvent;
+  onChoose: (choiceId: string) => void;
+  getChoiceDisabledReason?: (choice: CampaignEventChoice) => string | undefined;
+  readOnly?: boolean;
+}) {
+  return (
+    <section
+      className="campaign-event-panel"
+      aria-labelledby="campaign-event-title"
+      aria-live="polite"
+      data-testid="panel-campaign-event"
+    >
+      <div className="campaign-event-heading">
+        <div>
+          <div className="panel-kicker">{eventCategoryLabels[event.category]} · Turn {event.turn}</div>
+          <h2 id="campaign-event-title">{event.title}</h2>
+        </div>
+        <span className="campaign-event-mark" aria-hidden="true">!</span>
+      </div>
+      <p className="campaign-event-description">{event.description}</p>
+      <p className="campaign-event-prompt">{event.prompt}</p>
+      <div className="campaign-event-choices">
+        {event.choices.map((choice) => {
+          const disabledReason = getChoiceDisabledReason?.(choice);
+          return (
+            <div className="campaign-event-choice" key={choice.id}>
+              <button
+                type="button"
+                className="button-quiet"
+                onClick={() => onChoose(choice.id)}
+                disabled={readOnly || Boolean(disabledReason)}
+                data-testid={`button-event-choice-${choice.id}`}
+              >
+                <span>{choice.label}</span>
+                <ArrowRight size={13} aria-hidden="true" />
+              </button>
+              <p>{choice.description}</p>
+              {disabledReason && <small className="campaign-event-disabled">{disabledReason}</small>}
             </div>
           );
         })}

@@ -37,11 +37,15 @@ import {
 import {
   AccessibleRegionIndex,
   CampaignPrimer,
+  CampaignEventPanel,
   DispatchList,
   MilestonePanel,
   ResourceStrip,
   TurnSummaryPanel,
   type CampaignMilestone,
+  type CampaignEvent,
+  type CampaignEventCategory,
+  type CampaignEventChoice,
   type TurnSummary,
 } from '@/components/campaign-panels';
 import {
@@ -157,6 +161,7 @@ type Campaign = {
   diplomacy: DiplomacyState;
   log: string[];
   lastTurnSummary?: TurnSummary;
+  activeEvent?: CampaignEvent;
 };
 
 type ThemeKey = 'parchment' | 'midnight' | 'meadow';
@@ -613,6 +618,202 @@ function frontTravelDuration(source: Region, target: Region) {
   return Math.max(1, Math.min(3, Math.ceil(distance / 150)));
 }
 
+function isCampaignEventCategory(value: unknown): value is CampaignEventCategory {
+  return value === 'harvest' ||
+    value === 'settlement' ||
+    value === 'border' ||
+    value === 'scouting' ||
+    value === 'trade' ||
+    value === 'diplomacy' ||
+    value === 'readiness';
+}
+
+function normalizeCampaignEvent(value: unknown): CampaignEvent | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const candidate = value as Partial<CampaignEvent>;
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.turn !== 'number' ||
+    !isCampaignEventCategory(candidate.category) ||
+    typeof candidate.title !== 'string' ||
+    typeof candidate.description !== 'string' ||
+    typeof candidate.prompt !== 'string' ||
+    !Array.isArray(candidate.choices)
+  ) return undefined;
+  const choices = candidate.choices.flatMap((choice) => {
+    if (
+      !choice ||
+      typeof choice !== 'object' ||
+      typeof choice.id !== 'string' ||
+      typeof choice.label !== 'string' ||
+      typeof choice.description !== 'string'
+    ) return [];
+    return [{
+      id: choice.id.slice(0, 60),
+      label: choice.label.slice(0, 90),
+      description: choice.description.slice(0, 220),
+    }];
+  }).slice(0, 3);
+  if (choices.length < 2) return undefined;
+  return {
+    id: candidate.id.slice(0, 80),
+    turn: Math.max(1, Math.floor(candidate.turn)),
+    category: candidate.category,
+    title: candidate.title.slice(0, 140),
+    description: candidate.description.slice(0, 360),
+    prompt: candidate.prompt.slice(0, 220),
+    subjectRegionId: typeof candidate.subjectRegionId === 'string' ? candidate.subjectRegionId.slice(0, 80) : undefined,
+    subjectName: typeof candidate.subjectName === 'string' ? candidate.subjectName.slice(0, 100) : undefined,
+    choices,
+  };
+}
+
+function makeCampaignEvent(
+  campaign: Campaign,
+  turn: number,
+  regions: Region[],
+  fronts: Front[],
+  routes: TradeRoute[],
+): CampaignEvent {
+  const playerRegions = regions.filter((region) => region.kind === 'player');
+  const playerRegion = playerRegions[(turn + playerRegions.length) % playerRegions.length] ?? regions[0];
+  const rivalBorder = regions.find((region) =>
+    region.kind === 'rival' &&
+    playerRegions.some((player) => hasSharedBorder(regions, player.id, region.id)),
+  );
+  const neutralBorder = regions.find((region) =>
+    region.kind === 'neutral' &&
+    playerRegions.some((player) => hasSharedBorder(regions, player.id, region.id)),
+  );
+  const activeRoute = routes.find((route) => route.status === 'active' && route.remainingTurns > 0);
+  const court = regions.find((region) => region.kind !== 'player' && (campaign.relationships[region.id] ?? 'neutral') !== 'war');
+  const front = fronts.find((candidate) => candidate.committedForces > 0);
+  const eventId = `event-${turn}-${playerRegion?.id ?? 'realm'}`;
+  const subject = (region?: Region) => region ? { subjectRegionId: region.id, subjectName: region.name } : {};
+
+  switch (turn % 7) {
+    case 2:
+      if (rivalBorder) {
+        return {
+          id: eventId,
+          turn,
+          category: 'border',
+          title: `${rivalBorder.name} raises its watchfires`,
+          description: `Scouts report fresh fires along ${rivalBorder.name}. No army has crossed the line, but the neighboring court is measuring your readiness.`,
+          prompt: 'How should the crown answer a warning that has not yet become a battle?',
+          ...subject(rivalBorder),
+          choices: [
+            { id: 'border-scouts', label: 'Send scouts', description: 'Learn the border’s weakness and gain 3 reputation without committing an army.' },
+            { id: 'border-reinforce', label: 'Reinforce the watch', description: 'Spend 8 gold to add 6 soldiers at your nearest held border.' },
+          ],
+        };
+      }
+      break;
+    case 3:
+      if (neutralBorder) {
+        return {
+          id: eventId,
+          turn,
+          category: 'scouting',
+          title: `Wayfinders arrive from ${neutralBorder.name}`,
+          description: `Travelers from ${neutralBorder.name} offer a careful map of the roads between your settlements. Their route can open a friendship or simply sharpen your own patrols.`,
+          prompt: 'Choose whether to welcome the wayfinders or keep their map at arm’s length.',
+          ...subject(neutralBorder),
+          choices: [
+            { id: 'scouting-welcome', label: 'Welcome the wayfinders', description: 'Spend 8 gold on hospitality and improve the court’s view of your crown.' },
+            { id: 'scouting-map', label: 'Keep the map', description: 'The patrol learns the road; gain 5 gold from safer local movement.' },
+          ],
+        };
+      }
+      break;
+    case 4:
+      if (isExpansionEnabled(campaign.expansions, 'commerce') && activeRoute) {
+        const partner = regionById(regions, activeRoute.partnerRegionId);
+        return {
+          id: eventId,
+          turn,
+          category: 'trade',
+          title: `A convoy arrives from ${partner?.name ?? 'the road'}`,
+          description: `The convoy master reports a narrow crossing and asks whether the crown will protect the next delivery or take the safer, smaller margin.`,
+          prompt: 'Commerce is optional, but this choice will shape the next dispatch.',
+          ...subject(partner),
+          choices: [
+            { id: 'trade-escort', label: 'Fund an escort', description: 'Spend 6 gold to protect the charter and receive 5 extra gold now.' },
+            { id: 'trade-margin', label: 'Keep the margin', description: 'Accept the risk and take 8 gold from the current delivery.' },
+          ],
+        };
+      }
+      break;
+    case 5:
+      if (isExpansionEnabled(campaign.expansions, 'diplomacy') && court) {
+        return {
+          id: eventId,
+          turn,
+          category: 'diplomacy',
+          title: `A sealed letter from ${court.name}`,
+          description: `${court.name} asks whether your growing crown intends to be a neighbor, a rival, or something more deliberate. The letter is not a treaty, but it will be remembered.`,
+          prompt: 'Set the tone before the next formal exchange.',
+          ...subject(court),
+          choices: [
+            { id: 'diplomacy-assurances', label: 'Send assurances', description: 'Spend 12 gold to gain 5 influence and improve relations.' },
+            { id: 'diplomacy-stand', label: 'Stand firmly', description: 'Keep the treasury closed and gain 2 reputation through a clear public stance.' },
+          ],
+        };
+      }
+      break;
+    case 6:
+      if (front && playerRegion) {
+        return {
+          id: eventId,
+          turn,
+          category: 'readiness',
+          title: `The levy at ${playerRegion.name} needs a decision`,
+          description: `Officers at ${playerRegion.name} report that soldiers are drilling between ordinary duties. Their discipline can strengthen the realm, even if no attack is ever ordered.`,
+          prompt: 'Use the quiet turn to prepare, or preserve the treasury for construction.',
+          ...subject(playerRegion),
+          choices: [
+            { id: 'readiness-drill', label: 'Drill the garrison', description: 'Spend 10 gold to add 8 soldiers to the selected held province.' },
+            { id: 'readiness-reserve', label: 'Keep the reserve', description: 'Save the treasury and gain 6 gold from careful provisioning.' },
+          ],
+        };
+      }
+      break;
+    case 1:
+      if (playerRegion) {
+        return {
+          id: eventId,
+          turn,
+          category: 'settlement',
+          title: `A new season in ${playerRegion.name}`,
+          description: `The settlement’s households ask for a small public work. A crown that invests earns loyalty; a crown that waits keeps room for a larger charter.`,
+          prompt: 'Choose the kind of prosperity this turn should leave behind.',
+          ...subject(playerRegion),
+          choices: [
+            { id: 'settlement-fair', label: 'Fund a market fair', description: 'Spend 10 gold and gain 3 reputation as local trade and trust grow.' },
+            { id: 'settlement-stores', label: 'Fill the stores', description: 'Keep the gold and add 12 food to the granary.' },
+          ],
+        };
+      }
+      break;
+    default:
+      break;
+  }
+
+  return {
+    id: eventId,
+    turn,
+    category: 'harvest',
+    title: `The harvest reaches ${playerRegion?.name ?? 'the crown'}`,
+    description: `Stewards report a steady season across the held provinces. The stores are healthy enough to support either patience or a little generosity.`,
+    prompt: 'Choose what the harvest should make possible next.',
+    ...subject(playerRegion),
+    choices: [
+      { id: 'harvest-granary', label: 'Open the granaries', description: 'Add 16 food to the stores so peaceful growth remains comfortable.' },
+      { id: 'harvest-treasury', label: 'Reserve the surplus', description: 'Convert the surplus into 12 gold for a future charter.' },
+    ],
+  };
+}
+
 type RivalTurnInput = {
   regions: Region[];
   fronts: Front[];
@@ -882,6 +1083,7 @@ function makeNewCampaign(nation: string, banner: Banner, expansions: ExpansionSe
     diplomacy: defaultDiplomacy(),
     log: ['The first standard was raised at Aurelian Reach.'],
     lastTurnSummary: undefined,
+    activeEvent: undefined,
   };
 }
 
@@ -1053,6 +1255,7 @@ function readCampaign(): Campaign | null {
               .map((item) => item.slice(0, 220)),
           }
         : undefined;
+    const activeEvent = normalizeCampaignEvent(saved.activeEvent);
     const savedStatus: CampaignStatus = saved.status === 'victory' && hasFoundedKingdom(regions) ? 'victory' : 'active';
 
     return {
@@ -1096,6 +1299,7 @@ function readCampaign(): Campaign | null {
         ? saved.log.filter((entry): entry is string => typeof entry === 'string')
         : ['The first standard was raised at Aurelian Reach.'],
       lastTurnSummary,
+      activeEvent,
     };
   } catch (error) {
     console.error('Could not restore campaign save', error);
@@ -1724,6 +1928,164 @@ function App() {
     setSelectedId(partnerRegionId);
   };
 
+  const getEventChoiceDisabledReason = (choice: CampaignEventChoice) => {
+    if (!campaign) return 'Start a chronicle before answering an event.';
+    const costs: Record<string, number> = {
+      'border-reinforce': 8,
+      'scouting-welcome': 8,
+      'trade-escort': 6,
+      'diplomacy-assurances': 12,
+      'readiness-drill': 10,
+      'settlement-fair': 10,
+    };
+    const cost = costs[choice.id] ?? 0;
+    return cost > campaign.gold ? `Needs ${cost} gold; the treasury has ${campaign.gold}.` : undefined;
+  };
+
+  const chooseCampaignEvent = (choiceId: string) => {
+    if (!guardCampaignActive(campaign) || !campaign.activeEvent) return;
+    const event = campaign.activeEvent;
+    const choice = event.choices.find((candidate) => candidate.id === choiceId);
+    if (!choice) return announce('That event response is no longer available.', true);
+    const disabledReason = getEventChoiceDisabledReason(choice);
+    if (disabledReason) return announce(disabledReason, true);
+
+    updateCampaign((current) => {
+      if (!current.activeEvent || current.activeEvent.id !== event.id) return current;
+      let goldDelta = 0;
+      let foodDelta = 0;
+      let reputationDelta = 0;
+      let influenceDelta = 0;
+      let forceDelta = 0;
+      let subjectForceDelta = 0;
+      let relationshipUpdate: RelationshipState | undefined;
+      let routeRiskDelta = 0;
+      let outcome = `${event.title}: ${choice.label}.`;
+
+      switch (choice.id) {
+        case 'harvest-granary':
+          foodDelta = 16;
+          outcome = `${event.title}: the granaries opened and the realm gained 16 food for the peaceful season.`;
+          break;
+        case 'harvest-treasury':
+          goldDelta = 12;
+          foodDelta = -4;
+          outcome = `${event.title}: the surplus was reserved, adding 12 gold while 4 food went to the winter stores.`;
+          break;
+        case 'settlement-fair':
+          goldDelta = -10;
+          reputationDelta = 3;
+          outcome = `${event.title}: a market fair cost 10 gold and earned 3 reputation with the settlement.`;
+          break;
+        case 'settlement-stores':
+          foodDelta = 12;
+          outcome = `${event.title}: the settlement filled its stores, adding 12 food without spending the treasury.`;
+          break;
+        case 'border-scouts':
+          reputationDelta = 3;
+          outcome = `${event.title}: scouts mapped the watchfires and the crown gained 3 reputation without opening a war.`;
+          break;
+        case 'border-reinforce':
+          goldDelta = -8;
+          forceDelta = 6;
+          subjectForceDelta = 6;
+          outcome = `${event.title}: 8 gold funded the watch, adding 6 soldiers to ${event.subjectName ?? 'the nearest border'}.`;
+          break;
+        case 'scouting-welcome':
+          goldDelta = -8;
+          reputationDelta = 3;
+          relationshipUpdate = 'friendly';
+          outcome = `${event.title}: 8 gold welcomed the wayfinders, earning 3 reputation and a warmer channel.`;
+          break;
+        case 'scouting-map':
+          goldDelta = 5;
+          outcome = `${event.title}: the patrol kept the route map and recovered 5 gold through safer movement.`;
+          break;
+        case 'trade-escort':
+          goldDelta = -1;
+          routeRiskDelta = -8;
+          outcome = `${event.title}: the escort cost 6 gold, protected the charter, and returned 5 gold in secured cargo.`;
+          break;
+        case 'trade-margin':
+          goldDelta = 8;
+          outcome = `${event.title}: the crown kept the margin and received 8 gold from the current delivery.`;
+          break;
+        case 'diplomacy-assurances':
+          goldDelta = -12;
+          influenceDelta = 5;
+          reputationDelta = 1;
+          relationshipUpdate = 'friendly';
+          outcome = `${event.title}: 12 gold bought a patient answer, adding 5 influence and improving the channel.`;
+          break;
+        case 'diplomacy-stand':
+          reputationDelta = 2;
+          outcome = `${event.title}: the court stood firmly and gained 2 reputation without spending gold.`;
+          break;
+        case 'readiness-drill':
+          goldDelta = -10;
+          forceDelta = 8;
+          subjectForceDelta = 8;
+          outcome = `${event.title}: 10 gold funded a drill, adding 8 soldiers at ${event.subjectName ?? 'the garrison'}.`;
+          break;
+        case 'readiness-reserve':
+          goldDelta = 6;
+          outcome = `${event.title}: careful provisioning returned 6 gold to the reserve.`;
+          break;
+      }
+
+      const nextResources = { ...current.resources };
+      if (current.expansions.commerce) {
+        nextResources.grain = Math.max(0, nextResources.grain + foodDelta);
+      }
+      const nextRegions = current.regions.map((region) =>
+        region.id === current.activeEvent?.subjectRegionId && subjectForceDelta
+          ? { ...region, forces: region.forces + subjectForceDelta }
+          : region,
+      );
+      const nextRelationships = relationshipUpdate && current.expansions.diplomacy && current.activeEvent.subjectRegionId
+        ? { ...current.relationships, [current.activeEvent.subjectRegionId]: relationshipUpdate }
+        : current.relationships;
+      const nextRoutes = routeRiskDelta
+        ? current.tradeRoutes.map((route) =>
+          route.partnerRegionId === current.activeEvent?.subjectRegionId
+            ? { ...route, risk: Math.max(0, Math.min(100, route.risk + routeRiskDelta)), status: 'active' as const }
+            : route,
+        )
+        : current.tradeRoutes;
+      const nextTurnSummary = current.lastTurnSummary
+        ? {
+          ...current.lastTurnSummary,
+          headline: `${event.title} resolved`,
+          items: [...current.lastTurnSummary.items, `Event choice: ${outcome}`].slice(0, 8),
+        }
+        : undefined;
+
+      return {
+        ...current,
+        gold: Math.max(0, current.gold + goldDelta),
+        food: current.expansions.commerce ? nextResources.grain : Math.max(0, current.food + foodDelta),
+        resources: nextResources,
+        forces: Math.max(0, current.forces + forceDelta),
+        regions: nextRegions,
+        relationships: nextRelationships,
+        tradeRoutes: nextRoutes,
+        reputation: Math.max(0, Math.min(100, current.reputation + reputationDelta)),
+        diplomacy: {
+          ...current.diplomacy,
+          influence: Math.max(0, Math.min(100, current.diplomacy.influence + influenceDelta)),
+        },
+        activeEvent: undefined,
+        lastTurnSummary: nextTurnSummary,
+        log: [outcome, ...current.log],
+      };
+    });
+    announce(
+      `${choice.label}: ${event.subjectName ? `${event.subjectName} responds. ` : ''}${choice.description}`,
+      false,
+      event.category === 'harvest' ? 'harvest' : 'general',
+    );
+  };
+
   const startCampaign = () => {
     const next = makeNewCampaign(nationName, banners[bannerIndex], newExpansions);
     setCampaign(next);
@@ -2240,6 +2602,9 @@ function App() {
 
   const advanceTurn = () => {
     if (!guardCampaignActive(campaign)) return;
+    if (campaign.activeEvent) {
+      return announce('Resolve the event at the event desk before advancing another turn.', true);
+    }
     const nextTurn = campaign.turn + 1;
     const currentEconomy = commerceEnabled ? realmEconomy(campaign.regions) : { production: emptyLedger(), consumption: emptyLedger() };
     const nextResources = { ...campaign.resources };
@@ -2335,6 +2700,7 @@ function App() {
     });
     nextRegions = rivalTurn.regions;
     const turnNotices = [...rivalTurn.notices, ...frontNotices];
+    const event = makeCampaignEvent(campaign, nextTurn, nextRegions, nextFronts, nextRoutes);
     const expiredRoutes = nextRoutes.filter((route) => route.status === 'expired').length;
     const income = campaign.regions.filter((region) => region.kind === 'player').length * 24;
     const goldDelta = income + routeIncome - routeUpkeep;
@@ -2361,6 +2727,7 @@ function App() {
           : commerceEnabled
             ? 'Routes: active charters delivered their scheduled goods.'
             : 'Routes: commerce is dormant; no convoys moved.',
+        `Event: ${event.title}. ${event.prompt}`,
       ],
     };
     updateCampaign((current) => ({
@@ -2374,6 +2741,7 @@ function App() {
       fronts: nextFronts,
       treaties: nextTreaties,
       lastTurnSummary: turnSummary,
+      activeEvent: event,
       diplomacy: diplomacyEnabled
         ? {
           ...current.diplomacy,
@@ -2393,7 +2761,7 @@ function App() {
       ],
     }));
     announce(
-      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}${expiredTreaties.length ? `; ${expiredTreaties.length} treaty${expiredTreaties.length === 1 ? '' : 's'} expired` : ''}${turnNotices.length ? ` ${turnNotices.slice(0, 2).join(' ')}` : ''}`,
+      `Turn ${nextTurn}. The realm gathered ${goldDelta} gold${commerceEnabled ? ` and ${nextResources.grain - campaign.resources.grain} grain` : ' and replenished the baseline granary'}. ${event.title} needs your decision.`,
       false,
       'harvest',
     );
@@ -2493,7 +2861,7 @@ function App() {
                <div className="page-kicker">{campaignComplete ? 'Completed chronicle · Review edition' : 'Canvas edition · Continental chronicle'} · Turn {String(campaign.turn).padStart(2, '0')}</div>
               <h1 className="page-title">{campaign.nation}</h1>
             </div>
-            <div className="turn-control">
+               <div className="turn-control">
               <ExpansionPackControl
                 selection={campaign.expansions}
                 onChange={updateExpansionSelection}
@@ -2514,7 +2882,7 @@ function App() {
                 setOpen={setAppearanceOpen}
               />
               <div className="turn-count"><span>Current turn</span><strong data-testid="text-current-turn">{campaign.turn}</strong></div>
-              <button className="button-primary" onClick={advanceTurn} disabled={campaignComplete} data-testid="button-advance-turn"><ArrowRight size={15} /><span>{campaignComplete ? 'Chronicle complete' : 'Resolve turn'}</span></button>
+               <button className="button-primary" onClick={advanceTurn} disabled={campaignComplete || Boolean(campaign.activeEvent)} data-testid="button-advance-turn"><ArrowRight size={15} /><span>{campaignComplete ? 'Chronicle complete' : campaign.activeEvent ? 'Event decision pending' : 'Resolve turn'}</span></button>
             </div>
           </header>
 
@@ -2561,6 +2929,14 @@ function App() {
               diplomacyEnabled={diplomacyEnabled}
             />
            {campaign.lastTurnSummary && <TurnSummaryPanel summary={campaign.lastTurnSummary} />}
+           {campaign.activeEvent && (
+             <CampaignEventPanel
+               event={campaign.activeEvent}
+               onChoose={chooseCampaignEvent}
+               getChoiceDisabledReason={getEventChoiceDisabledReason}
+               readOnly={campaignComplete}
+             />
+           )}
             <MilestonePanel milestones={campaignMilestones} />
           {commerceEnabled ? (
             <EconomyPanel
