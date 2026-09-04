@@ -124,3 +124,23 @@ test("keeps the map controls and accessible index usable at mobile size", async 
     "Realm board view at 54 percent zoom. Select a province, then drag to pan or use arrow keys to move.",
   );
 });
+
+test("expands the command map and returns focus on Escape", async ({ page }) => {
+  await startCampaign(page);
+
+  const toggle = page.getByTestId("button-toggle-command-map");
+  const panel = page.getByTestId("panel-command-map");
+
+  await toggle.click();
+  await expect(panel).toHaveClass(/map-panel-expanded/);
+  await expect(toggle).toHaveText(/Return to desk/);
+  await expect(page.getByTestId("canvas-campaign-map")).toHaveAttribute(
+    "id",
+    "command-map-canvas",
+  );
+
+  await page.keyboard.press("Escape");
+  await expect(panel).not.toHaveClass(/map-panel-expanded/);
+  await expect(toggle).toHaveText(/Expand map/);
+  await expect(toggle).toBeFocused();
+});

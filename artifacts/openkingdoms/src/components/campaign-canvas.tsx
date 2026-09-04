@@ -56,6 +56,7 @@ export type CanvasPalette = {
 };
 
 type CampaignCanvasProps = {
+  id?: string;
   regions: CanvasRegion[];
   coastlinePath: string;
   fronts: CanvasFront[];
@@ -265,6 +266,7 @@ function placeLabel(
 }
 
 export function CampaignCanvas({
+  id,
   regions,
   coastlinePath,
   fronts,
@@ -1018,6 +1020,7 @@ export function CampaignCanvas({
     <div className="campaign-canvas-stage">
        <canvas
         ref={canvasRef}
+         id={id}
         className={`map-canvas ${isDragging ? 'is-dragging' : ''}`}
         width={VIEW_WIDTH}
         height={VIEW_HEIGHT}

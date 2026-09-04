@@ -12,7 +12,9 @@ import {
   Handshake,
   Hammer,
   Landmark,
+  Maximize2,
   Menu,
+  Minimize2,
   Moon,
   Minus,
   Mountain,
@@ -1274,6 +1276,7 @@ function App() {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [systemsOpen, setSystemsOpen] = useState(false);
   const [activeFrontId, setActiveFrontId] = useState<string | null>(null);
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [frontDraftName, setFrontDraftName] = useState('');
   const [frontDraftSourceId, setFrontDraftSourceId] = useState('');
   const [frontDraftAllocation, setFrontDraftAllocation] = useState(0);
@@ -1281,6 +1284,7 @@ function App() {
   const [tradeDraftExport, setTradeDraftExport] = useState<ResourceType>('grain');
   const [tradeDraftImport, setTradeDraftImport] = useState<ResourceType>('salt');
   const guideCloseRef = useRef<HTMLButtonElement>(null);
+  const mapExpandButtonRef = useRef<HTMLButtonElement>(null);
   const feedbackSequenceRef = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -1319,6 +1323,18 @@ function App() {
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [guideOpen]);
+
+  useEffect(() => {
+    if (!mapExpanded) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMapExpanded(false);
+        window.setTimeout(() => mapExpandButtonRef.current?.focus(), 0);
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [mapExpanded]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -1686,6 +1702,26 @@ function App() {
     const id = ++feedbackSequenceRef.current;
     setFeedback({ text, error, tone, id });
     playFeedbackSound(tone);
+  };
+
+  const selectRegion = (id: string) => {
+    setActiveFrontId(null);
+    setSelectedId(id);
+  };
+
+  const selectFront = (frontId: string) => {
+    const front = frontSummaries.find((candidate) => candidate.id === frontId);
+    if (!front) {
+      announce('That front is no longer on the border.', true);
+      return;
+    }
+    setActiveFrontId(frontId);
+    setSelectedId(front.targetRegionId);
+  };
+
+  const selectRoute = (partnerRegionId: string) => {
+    setActiveFrontId(null);
+    setSelectedId(partnerRegionId);
   };
 
   const startCampaign = () => {
@@ -2544,13 +2580,30 @@ function App() {
           )}
 
           <div className="content-grid">
-            <section className="map-panel map-in">
+             <section
+               className={`map-panel map-in ${mapExpanded ? 'map-panel-expanded' : ''}`}
+               aria-label="Command map"
+               data-testid="panel-command-map"
+             >
               <div className="map-head">
-                 <div className="map-head-copy"><div className="panel-kicker">The realm at a glance</div><h2>Read the border</h2><p>Land and ownership come first. Select a province to reveal legal neighboring targets, roads, orders, and courts that matter there.</p></div>
+                  <div className="map-head-copy"><div className="panel-kicker">The realm at a glance</div><h2>{mapExpanded ? 'Command the border' : 'Read the border'}</h2><p>Land and ownership come first. Select a province to reveal legal neighboring targets, roads, orders, and courts that matter there.</p></div>
                  <div className="map-head-side"><span className="map-view-tag">Focused political map</span><div className="map-legend"><span className="legend-item"><i className="legend-dot yours" /> Your lands</span><span className="legend-item"><i className="legend-dot rival" /> Rival claim</span><span className="legend-item"><i className="legend-dot neutral" /> Unclaimed</span><span className="legend-item"><i className="legend-dot road" /> Roads in focus</span><span className="legend-item"><i className="legend-dot front" /> Active front</span><span className="legend-item"><i className="legend-dot adjacent" /> Adjacent border</span></div></div>
+                  <button
+                    ref={mapExpandButtonRef}
+                    type="button"
+                    className="map-expand-button button-quiet"
+                    onClick={() => setMapExpanded((expanded) => !expanded)}
+                    aria-expanded={mapExpanded}
+                    aria-controls="command-map-canvas"
+                    data-testid="button-toggle-command-map"
+                  >
+                    {mapExpanded ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
+                    <span>{mapExpanded ? 'Return to desk' : 'Expand map'}</span>
+                  </button>
               </div>
-              <div className="map-canvas-wrap" id="map-help">
+               <div className="map-canvas-wrap" id="map-help">
                 <CampaignCanvas
+                   id="command-map-canvas"
                   regions={canvasRegions}
                   coastlinePath={continentalCoastlinePath}
                   fronts={canvasFronts}
@@ -2559,38 +2612,22 @@ function App() {
                   selectedFrontId={activeFrontId}
                   bannerColor={campaign.banner.color}
                   palette={canvasPalette}
-                  onSelect={(id) => {
-                    setActiveFrontId(null);
-                    setSelectedId(id);
-                  }}
-                  onSelectFront={(frontId) => {
-                    const front = frontSummaries.find((candidate) => candidate.id === frontId);
-                    if (!front) return;
-                    setActiveFrontId(frontId);
-                    setSelectedId(front.targetRegionId);
-                  }}
-                  onSelectRoute={(partnerRegionId) => {
-                    setActiveFrontId(null);
-                    setSelectedId(partnerRegionId);
-                  }}
+                   onSelect={selectRegion}
+                   onSelectFront={selectFront}
+                   onSelectRoute={selectRoute}
+                   onMiss={() => announce('Select a province, front, or highlighted route to inspect it.', true)}
                 />
               </div>
                 <p className="map-note"><strong>Choose your next move.</strong> Your selected province sets the map’s focus; nearby roads and orders appear as you need them.</p>
               <AccessibleRegionIndex
                 regions={campaign.regions}
                 selectedId={selectedId}
-                onSelect={(id) => {
-                  setActiveFrontId(null);
-                  setSelectedId(id);
-                }}
+                 onSelect={selectRegion}
               />
               <FrontIndex
                 fronts={frontSummaries}
                 selectedFrontId={activeFrontId}
-                onSelect={(front) => {
-                  setActiveFrontId(front.id);
-                  setSelectedId(front.targetRegionId);
-                }}
+                 onSelect={(front) => selectFront(front.id)}
               />
             </section>
 
@@ -2655,10 +2692,7 @@ function App() {
                                type="button"
                                key={neighbor.id}
                                className={`border-chip ${legalTarget ? 'is-legal' : ''}`}
-                               onClick={() => {
-                                 setActiveFrontId(null);
-                                 setSelectedId(neighbor.id);
-                               }}
+                                onClick={() => selectRegion(neighbor.id)}
                                aria-label={`Inspect adjacent province ${neighbor.name}`}
                              >
                                <span><strong>{neighbor.name}</strong><small>{neighbor.kind === 'player' ? 'Your land' : neighbor.kind === 'rival' ? 'Rival claim' : 'Unclaimed'} · {neighbor.forces} forces</small></span>

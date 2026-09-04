@@ -1,0 +1,1 @@
+- [Map interaction model](map-interaction-model.md) — Keep map gestures, overlays, and accessible selection synchronized around the same focused target.
