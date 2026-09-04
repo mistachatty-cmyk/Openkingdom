@@ -1,2 +1,3 @@
 - [Map interaction model](map-interaction-model.md) — Keep map gestures, overlays, and accessible selection synchronized around the same focused target.
 - [Campaign events](campaign-events.md) — Resolve one authored, save-safe decision after each turn without making combat mandatory.
+- [Territorial layers](territorial-layers.md) — Keep counties, settlements, barracks, strongholds, and political owners distinct as the world expands.

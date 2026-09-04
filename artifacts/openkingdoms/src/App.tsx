@@ -87,6 +87,13 @@ import {
   type NationArchetypeId,
 } from '@/nation-archetypes';
 import {
+  getNextStrongholdTier,
+  getStrongholdTier,
+  MAX_STRONGHOLD_LEVEL,
+  normalizeStrongholdLevel,
+  type StrongholdLevel,
+} from '@/strongholds';
+import {
   ALL_EXPANSIONS,
   BASELINE_EXPANSIONS,
   isExpansionEnabled,
@@ -112,6 +119,7 @@ type Region = {
   landmark?: string;
   path: string;
   label: [number, number];
+  strongholdLevel?: StrongholdLevel;
 };
 type FrontStatus = 'staged' | 'marching' | 'arrived' | 'resolved';
 type Front = {
@@ -614,6 +622,19 @@ function realmEconomy(regions: Region[]) {
 
 const regionById = (regions: Region[], id: string) => regions.find((region) => region.id === id);
 
+function strongholdUpgradeCost(level: unknown) {
+  return getNextStrongholdTier(level)?.cost ?? 0;
+}
+
+function strongholdStatusReason(region: Region, campaign: Campaign) {
+  const level = normalizeStrongholdLevel(region.strongholdLevel);
+  if (level >= MAX_STRONGHOLD_LEVEL) return 'This province has reached its maximum stronghold level.';
+  const next = getNextStrongholdTier(level);
+  if (!next) return 'No further stronghold tier is available.';
+  if (campaign.gold < next.cost) return `You need ${next.cost} gold to raise this ${next.shortName.toLowerCase()}.`;
+  return undefined;
+}
+
 function hasSharedBorder(regions: Region[], firstId: string, secondId: string) {
   const first = regionById(regions, firstId);
   const second = regionById(regions, secondId);
@@ -866,6 +887,9 @@ function resolveRivalTurn({
     .filter((region) => region.kind === 'rival')
     .map((rival) => {
       const playerBorder = playerRegions.some((player) => hasSharedBorder(regions, player.id, rival.id));
+      const borderStrongholdLevel = playerRegions
+        .filter((player) => hasSharedBorder(regions, player.id, rival.id))
+        .reduce((highest, player) => Math.max(highest, normalizeStrongholdLevel(player.strongholdLevel)), 0);
       const frontThreat = fronts
         .filter((front) =>
           front.targetRegionId === rival.id &&
@@ -903,6 +927,7 @@ function resolveRivalTurn({
         rival,
         frontThreat,
         activeRoute,
+        borderStrongholdLevel,
         embargoed,
         relationship,
         priority: threatWeight + relationshipWeight + postureWeight,
@@ -921,6 +946,7 @@ function resolveRivalTurn({
   if (diplomacyEnabled && diplomacy.posture === 'assertive') reinforcement += 1;
   if (commerceEnabled && selected.activeRoute) reinforcement -= 1;
   if (selected.embargoed) reinforcement += 1;
+  reinforcement -= Math.min(2, selected.borderStrongholdLevel);
   reinforcement = Math.max(1, Math.min(RIVAL_MAX_ACTION_REINFORCEMENT, reinforcement));
 
   const nextRegions = regions.map((region) =>
@@ -928,9 +954,12 @@ function resolveRivalTurn({
       ? { ...region, forces: Math.min(RIVAL_MAX_FORCES, region.forces + reinforcement) }
       : region,
   );
+  const fortificationNote = selected.borderStrongholdLevel
+    ? ` A nearby level ${selected.borderStrongholdLevel} stronghold kept the response measured.`
+    : '';
   const notice = selected.frontThreat
-    ? `${selected.rival.name} reinforced the threatened border with ${reinforcement} forces while ${selected.frontThreat.name} ${selected.frontThreat.status === 'arrived' ? 'waits at the line' : 'approaches'}${selected.embargoed ? '; the embargo hardened its response' : ''}.`
-    : `${selected.rival.name} conducted a border drill and added ${reinforcement} forces${selected.activeRoute ? '; its open trade road kept the response measured' : selected.embargoed ? '; the embargo hardened its response' : ''}.`;
+    ? `${selected.rival.name} reinforced the threatened border with ${reinforcement} forces while ${selected.frontThreat.name} ${selected.frontThreat.status === 'arrived' ? 'waits at the line' : 'approaches'}${selected.embargoed ? '; the embargo hardened its response' : ''}.${fortificationNote}`
+    : `${selected.rival.name} conducted a border drill and added ${reinforcement} forces${selected.activeRoute ? '; its open trade road kept the response measured' : selected.embargoed ? '; the embargo hardened its response' : ''}.${fortificationNote}`;
 
   return { regions: nextRegions, notices: [notice] };
 }
@@ -1096,7 +1125,7 @@ function makeNewCampaign(
     food: Math.max(0, 120 + archetype.modifiers.startingFood),
     resources: { grain: Math.max(0, 120 + archetype.modifiers.startingFood), timber: 24, iron: 12, salt: 10 },
     forces: Math.max(1, 48 + archetype.modifiers.startingForces),
-    regions: worldRegions.map((region) => ({ ...region, adjacent: [...region.adjacent] })),
+    regions: worldRegions.map((region) => ({ ...region, adjacent: [...region.adjacent], strongholdLevel: 0 as StrongholdLevel })),
     fronts: [],
     relationships: {},
     treaties: [],
@@ -1163,6 +1192,7 @@ function readCampaign(): Campaign | null {
             ? savedRegion.forces
             : base.forces,
         barracks: Boolean(savedRegion.barracks),
+        strongholdLevel: normalizeStrongholdLevel(savedRegion.strongholdLevel),
       };
     });
 
@@ -1593,6 +1623,9 @@ function App() {
   const diplomacyEnabled = campaign ? isExpansionEnabled(campaign.expansions, 'diplomacy') : false;
   const commerceEnabled = campaign ? isExpansionEnabled(campaign.expansions, 'commerce') : false;
   const activeArchetype = getNationArchetype(campaign?.archetypeId ?? nationArchetypeId);
+  const selectedRecruitmentYield = selected
+    ? (selected.barracks ? 16 : 10) + activeArchetype.modifiers.recruitmentBonus + getStrongholdTier(selected.strongholdLevel).recruitment
+    : 0;
   const frontSummaries = useMemo<FrontSummary[]>(() => {
     if (!campaign) return [];
     return campaign.fronts.flatMap((front) => {
@@ -1600,6 +1633,7 @@ function App() {
       const target = regionById(campaign.regions, front.targetRegionId);
       if (!source || !target) return [];
       const projectedDefendingForces = source.forces + front.committedForces;
+      const targetStronghold = getStrongholdTier(target.strongholdLevel);
        const allySupport = diplomacyEnabled && campaign.militaryAid > 0 && campaign.treaties.some((treaty) =>
         treaty.kind === 'defensive-alliance' &&
         treaty.partnerRegionId !== target.id &&
@@ -1607,12 +1641,13 @@ function App() {
         hasSharedBorder(campaign.regions, treaty.partnerRegionId, target.id),
       ) ? Math.min(12, campaign.militaryAid) : 0;
       const attackStrength = front.committedForces + allySupport;
-      const outcome: FrontSummary['outcome'] =
+       const defenderStrength = target.forces + targetStronghold.defense;
+       const outcome: FrontSummary['outcome'] =
         front.committedForces <= 0
           ? 'No forces staged'
-          : attackStrength >= target.forces + 12
+           : attackStrength >= defenderStrength + 12
             ? 'Strong advantage'
-            : attackStrength > target.forces
+             : attackStrength > defenderStrength
               ? 'Uncertain'
               : 'Outmatched';
       return [{
@@ -1625,6 +1660,8 @@ function App() {
         sourceForces: source.forces,
         committedForces: front.committedForces,
         targetForces: target.forces,
+         strongholdLevel: targetStronghold.level,
+         strongholdDefense: targetStronghold.defense,
         projectedDefendingForces,
         allySupport,
         supply: source.kind === 'player' && source.adjacent.includes(target.id) ? 'Supplied' : 'Broken supply',
@@ -1718,7 +1755,7 @@ function App() {
       }),
       buildMilestone({
         id: 'shape-a-stronghold',
-        title: 'Shape a stronghold',
+        title: 'Grow a settlement',
         description: 'Upgrade one settlement so your economy and levies can compound.',
         progress: Math.min(1, developed),
         target: 1,
@@ -2499,11 +2536,38 @@ function App() {
     announce(`${selected.name} is now a ${nextSettlement[selected.settlement]}.`, false, 'upgrade');
   };
 
+  const upgradeStronghold = () => {
+    if (!guardCampaignActive(campaign) || !selected || selected.kind !== 'player') return;
+    const level = normalizeStrongholdLevel(selected.strongholdLevel);
+    const next = getNextStrongholdTier(level);
+    if (!next) return announce('This county has reached the Citadel tier.', true);
+    if (campaign.gold < next.cost) return announce(`You need ${next.cost} gold to raise the ${next.shortName.toLowerCase()}.`, true);
+    updateCampaign((current) => ({
+      ...current,
+      gold: current.gold - next.cost,
+      regions: current.regions.map((region) =>
+        region.id === selected.id ? { ...region, strongholdLevel: next.level } : region,
+      ),
+      lastTurnSummary: {
+        turn: current.turn,
+        headline: `${selected.name} raised a ${next.shortName}.`,
+        items: [
+          `Stronghold: ${selected.name} advanced to ${next.name}.`,
+          `Defense: +${next.defense} defending strength · recovery +${next.recovery} · recruitment +${next.recruitment}.`,
+          `Treasury: −${next.cost} gold for the county works.`,
+        ],
+      },
+      log: [`${selected.name} raised a ${next.name}; its county defenses gained ${next.defense}.`, ...current.log],
+    }));
+    announce(`${selected.name} raised a ${next.name}. The county can now hold the line longer.`, false, 'build');
+  };
+
   const recruitForces = () => {
     if (!guardCampaignActive(campaign) || !selected || selected.kind !== 'player') return;
     const cost = 25;
     if (campaign.gold < cost || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)) return announce('Not enough gold or grain to call a new levy.', true);
-    const bonus = (selected.barracks ? 16 : 10) + activeArchetype.modifiers.recruitmentBonus;
+    const stronghold = getStrongholdTier(selected.strongholdLevel);
+    const bonus = (selected.barracks ? 16 : 10) + activeArchetype.modifiers.recruitmentBonus + stronghold.recruitment;
     updateCampaign((current) => ({
       ...current,
       gold: current.gold - cost,
@@ -2557,10 +2621,13 @@ function App() {
       hasSharedBorder(campaign.regions, treaty.partnerRegionId, target.id),
     ) ? Math.min(12, campaign.militaryAid) : 0;
     const attackStrength = front.committedForces + supportingForces;
-    const won = attackStrength > target.forces;
+    const targetStronghold = getStrongholdTier(target.strongholdLevel);
+    const sourceStronghold = getStrongholdTier(source.strongholdLevel);
+    const defenderStrength = target.forces + targetStronghold.defense;
+    const won = attackStrength > defenderStrength;
     const casualties = won
-      ? Math.min(front.committedForces - 1, Math.ceil(target.forces * .42))
-      : front.committedForces - Math.floor(front.committedForces / 3);
+      ? Math.min(front.committedForces - 1, Math.ceil(defenderStrength * .42))
+      : Math.max(0, front.committedForces - Math.floor(front.committedForces / 3) - sourceStronghold.recovery);
     const survivors = front.committedForces - casualties;
     const retreating = won ? 0 : front.committedForces - casualties;
     const victoryReached = won &&
@@ -2606,7 +2673,8 @@ function App() {
          items: [
            `Territory: ${target.name} · ${won ? 'rival claim → your crown' : 'rival claim retained'}.`,
            `Army: ${casualties} losses · ${won ? `${survivors} survivors now hold the province` : `${retreating} soldiers returned to ${source.name}`}.`,
-           `Strength: ${attackStrength} attacking${supportingForces ? ` including ${supportingForces} ally support` : ''} vs ${target.forces} defending.`,
+            `Strength: ${attackStrength} attacking${supportingForces ? ` including ${supportingForces} ally support` : ''} vs ${defenderStrength} defending.`,
+            `Fortification: ${targetStronghold.name}${targetStronghold.defense ? ` added +${targetStronghold.defense} defense` : ' offered no additional defense'}.`,
            won
              ? `New choice: ${target.name} is a Village without barracks; secure it before pressing another border.`
              : `Recovery: reinforce ${source.name}, recruit again, or revise another front before the next attack.`,
@@ -3127,11 +3195,45 @@ function App() {
                       <div><span className="meta-label">Settlement</span><strong className="meta-value" data-testid={`value-settlement-${selected.id}`}>{selected.settlement}</strong></div>
                       <div><span className="meta-label">Local forces</span><strong className="meta-value" data-testid={`value-region-forces-${selected.id}`}>{selected.forces}</strong></div>
                       <div><span className="meta-label">Barracks</span><strong className="meta-value" data-testid={`value-barracks-${selected.id}`}>{selected.barracks ? 'Built' : 'None'}</strong></div>
+                       <div><span className="meta-label">Stronghold</span><strong className="meta-value" data-testid={`value-stronghold-${selected.id}`}>{getStrongholdTier(selected.strongholdLevel).shortName}</strong></div>
                     </div>
                     <div className="selection-geography">
                       <span><small>Terrain</small><strong>{selected.terrain ? selected.terrain : 'Open country'}</strong></span>
                       <span><small>Landmark</small><strong>{selected.landmark ?? 'No landmark recorded'}</strong></span>
                     </div>
+                    <section className="selection-stronghold" aria-labelledby="selection-stronghold-title" data-testid={`panel-stronghold-${selected.id}`}>
+                      <div className="selection-subheading">
+                        <span className="meta-label" id="selection-stronghold-title">County stronghold</span>
+                        <span className="stronghold-tier-badge">{getStrongholdTier(selected.strongholdLevel).shortName}</span>
+                      </div>
+                      <p className="stronghold-description">{getStrongholdTier(selected.strongholdLevel).description}</p>
+                      <div className="stronghold-metrics">
+                        <span><small>Defense</small><strong>+{getStrongholdTier(selected.strongholdLevel).defense}</strong></span>
+                        <span><small>Recovery</small><strong>+{getStrongholdTier(selected.strongholdLevel).recovery}</strong></span>
+                        <span><small>Recruitment</small><strong>+{getStrongholdTier(selected.strongholdLevel).recruitment}</strong></span>
+                      </div>
+                      {selected.kind === 'player' ? (
+                        <>
+                          <button
+                            className="button-quiet action-button stronghold-upgrade-button"
+                            onClick={upgradeStronghold}
+                            disabled={campaignComplete || Boolean(strongholdStatusReason(selected, campaign))}
+                            data-testid="button-upgrade-stronghold"
+                          >
+                            <span><Castle size={14} /> {getNextStrongholdTier(selected.strongholdLevel) ? `Raise ${getNextStrongholdTier(selected.strongholdLevel)?.shortName}` : 'Citadel established'}</span>
+                            <span className="action-cost">{getNextStrongholdTier(selected.strongholdLevel) ? `${strongholdUpgradeCost(selected.strongholdLevel)} gold` : <Check size={13} />}</span>
+                          </button>
+                          <p className="action-help" data-testid="stronghold-action-reason">
+                            {campaignComplete
+                              ? 'The completed chronicle is read-only.'
+                              : strongholdStatusReason(selected, campaign) ??
+                                `Next tier: ${getNextStrongholdTier(selected.strongholdLevel)?.name}. It adds +${getNextStrongholdTier(selected.strongholdLevel)?.defense} defense and costs ${strongholdUpgradeCost(selected.strongholdLevel)} gold.`}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="action-help">This county’s fortification will matter if its banner changes hands.</p>
+                      )}
+                    </section>
                      {selectedLocalEconomy && (
                        <div className="selection-economy" aria-label={`Local economy for ${selected.name}`}>
                          <div className="selection-subheading"><span className="meta-label">Local economy</span><span className="mono">{commerceEnabled ? 'per turn' : 'when Commerce awakens'}</span></div>
@@ -3179,8 +3281,8 @@ function App() {
                           {!selected.barracks && <p className="action-help">Raises each recruitment call from 10 to 16 soldiers.</p>}
                            <button className="button-quiet action-button" onClick={upgradeSettlement} disabled={campaignComplete || selected.settlement === 'City' || campaign.gold < settlementCharterCost(selected.settlement, campaign.archetypeId)} data-testid="button-upgrade-settlement"><span><Landmark size={14} /> {selected.settlement === 'City' ? 'City charter complete' : `Upgrade to ${selected.settlement === 'Village' ? 'town' : 'city'}`}</span><span className="action-cost">{selected.settlement === 'City' ? <Check size={13} /> : `${settlementCharterCost(selected.settlement, campaign.archetypeId)} gold`}</span></button>
                           {selected.settlement !== 'City' && <p className="action-help">Increases this province's output and supports a stronger long-term base.</p>}
-                           <button className="button-primary action-button" onClick={recruitForces} disabled={campaignComplete || campaign.gold < 25 || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">+{(selected.barracks ? 16 : 10) + activeArchetype.modifiers.recruitmentBonus} · 25 gold · 10 food{commerceEnabled ? ' · 10 grain' : ''}</span></button>
-                           <p className="action-help">{selected.barracks ? `Barracks make this levy worth ${16 + activeArchetype.modifiers.recruitmentBonus} soldiers.` : `A field levy adds ${10 + activeArchetype.modifiers.recruitmentBonus} soldiers; build barracks before repeated calls.`}{commerceEnabled && campaign.resources.grain < 10 ? ' Grain is the current constraint.' : ''}</p>
+                           <button className="button-primary action-button" onClick={recruitForces} disabled={campaignComplete || campaign.gold < 25 || campaign.food < 10 || (commerceEnabled && campaign.resources.grain < 10)} data-testid="button-recruit-forces"><span><Users size={14} /> Recruit forces</span><span className="action-cost">+{selectedRecruitmentYield} · 25 gold · 10 food{commerceEnabled ? ' · 10 grain' : ''}</span></button>
+                           <p className="action-help">{selected.barracks ? `Barracks make this levy worth ${selectedRecruitmentYield} soldiers.` : `A field levy adds ${selectedRecruitmentYield} soldiers; build barracks before repeated calls.`}{commerceEnabled && campaign.resources.grain < 10 ? ' Grain is the current constraint.' : ''}</p>
                       </div>
                     ) : (
                       <>

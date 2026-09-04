@@ -21,6 +21,7 @@ export type CanvasRegion = {
   forces: number;
   path: string;
   label: [number, number];
+  strongholdLevel?: 0 | 1 | 2 | 3;
 };
 
 export type CanvasFront = {
@@ -263,6 +264,39 @@ function placeLabel(
     offsetX: 0,
     offsetY: 0,
   };
+}
+
+function drawStrongholdMarker(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  level: number,
+  palette: CanvasPalette,
+) {
+  if (level <= 0) return;
+  const size = level >= 3 ? 8 : level === 2 ? 7 : 6;
+  context.save();
+  context.strokeStyle = palette.selection;
+  context.fillStyle = palette.water;
+  context.lineWidth = level >= 3 ? 2 : 1.4;
+  context.beginPath();
+  context.rect(x - size, y - size + 3, size * 2, size * 1.35);
+  context.fill();
+  context.stroke();
+  context.beginPath();
+  context.moveTo(x - size - 1, y - size + 3);
+  context.lineTo(x, y - size - 4);
+  context.lineTo(x + size + 1, y - size + 3);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  context.fillStyle = palette.selection;
+  for (let index = 0; index < level; index += 1) {
+    context.beginPath();
+    context.arc(x - (level - 1) * 2.5 + index * 5, y + size * 0.9, 1.3, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
 }
 
 export function CampaignCanvas({
@@ -648,6 +682,7 @@ export function CampaignCanvas({
           context.arc(region.label[0], region.label[1], region.kind === 'player' ? 6 : 3, 0, Math.PI * 2);
           context.fill();
           context.restore();
+          drawStrongholdMarker(context, region.label[0] - 14, region.label[1] - 14, region.strongholdLevel ?? 0, palette);
           return;
         }
 
@@ -751,6 +786,7 @@ export function CampaignCanvas({
           context.lineTo(region.label[0] - 5, region.label[1] + 46);
           context.stroke();
         }
+        drawStrongholdMarker(context, region.label[0] - 24, region.label[1] - 20, region.strongholdLevel ?? 0, palette);
         context.restore();
       });
 

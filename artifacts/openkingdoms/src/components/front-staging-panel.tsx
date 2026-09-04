@@ -16,6 +16,8 @@ export type FrontSummary = {
   sourceForces: number;
   committedForces: number;
   targetForces: number;
+  strongholdLevel: number;
+  strongholdDefense: number;
   projectedDefendingForces: number;
   allySupport: number;
   supply: 'Supplied' | 'Broken supply';
@@ -207,7 +209,7 @@ export function FrontDossier({
   const safeAllocation = Number.isFinite(allocation) ? Math.max(0, Math.min(allocation, maxAllocation)) : 0;
 
   return (
-    <section className="front-dossier" aria-labelledby="front-dossier-title">
+    <section className="front-dossier" aria-labelledby="front-dossier-title" data-testid="panel-front-dossier">
       <div className="front-section-heading">
         <div>
           <div className="panel-kicker">Selected order</div>
@@ -222,7 +224,8 @@ export function FrontDossier({
         <div><dt>Source reserve</dt><dd>{front.sourceForces}</dd></div>
         <div><dt>Committed attack</dt><dd>{front.committedForces}</dd></div>
         <div><dt>Source after staging</dt><dd>{front.projectedDefendingForces}</dd></div>
-              <div><dt>Defender strength</dt><dd>{front.targetForces}</dd></div>
+              <div><dt>Defender strength</dt><dd>{front.targetForces + front.strongholdDefense}</dd></div>
+              <div><dt>County stronghold</dt><dd>{front.strongholdDefense ? `+${front.strongholdDefense} defense` : 'None'}</dd></div>
               <div><dt>Ally support</dt><dd>{front.allySupport ? `+${front.allySupport}` : 'None'}</dd></div>
         <div><dt>Supply status</dt><dd>{front.supply}</dd></div>
          <div><dt>Order status</dt><dd>{frontStatusLabel(front.status)}</dd></div>

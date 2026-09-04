@@ -17,6 +17,7 @@ export type RegionIndexItem = {
   kind: 'player' | 'rival' | 'neutral';
   settlement: 'Village' | 'Town' | 'City';
   forces: number;
+  strongholdLevel?: number;
 };
 
 export type TurnSummary = {
@@ -87,7 +88,7 @@ export function CampaignPrimer({
       </p>
       <ol className="campaign-primer-steps">
         <li><span>01</span><div><strong>Inspect</strong><small>Click a province or use the province index to read its owner, settlement, forces, terrain, and nearby borders.</small></div></li>
-        <li><span>02</span><div><strong>Develop or move</strong><small>{selectedKind === 'player' ? 'Build, upgrade, or recruit here. To expand, select a neighboring border and stage soldiers from this province.' : 'Select a neighboring border to choose a player-held source, set the levy, and preview the line.'}</small></div></li>
+         <li><span>02</span><div><strong>Develop or move</strong><small>{selectedKind === 'player' ? 'Build, upgrade, or recruit here. Fortify the county when you want a stronger defensive reserve. To expand, select a neighboring border and stage soldiers from this province.' : 'Select a neighboring border to choose a player-held source, set the levy, and preview the line.'}</small></div></li>
         <li><span>03</span><div><strong>Resolve and review</strong><small>Advance the turn to march armies and gather stores. Arrived fronts can attack; the resolution brief and chronicle explain every result.</small></div></li>
       </ol>
       <p className="campaign-primer-note">
@@ -319,6 +320,7 @@ export function AccessibleRegionIndex({
                   <span>{region.name}</span>
                   <small>
                     {getRegionStatus(region.kind)} · {region.settlement} · {region.forces} forces
+                    {region.strongholdLevel ? ` · Stronghold ${'I'.repeat(Math.min(3, region.strongholdLevel))}` : ''}
                   </small>
                 </button>
             ))}

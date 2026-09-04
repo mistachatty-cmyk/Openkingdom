@@ -471,13 +471,21 @@
 .territory-badge { text-transform: uppercase; letter-spacing: .12em; font-size: 8px; font-weight: 800; padding: 6px 7px; border: 1px solid #c19a79; color: #9b5948; }
 .territory-badge.player { color: #3f715d; border-color: #7ea48e; }
 .selection-description { color: #6d746c; font-size: 11px; line-height: 1.65; margin: 20px 0; max-width: 320px; }
-.settlement-meta { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #d2c5aa; border-bottom: 1px solid #d2c5aa; padding: 13px 0; gap: 7px; }
+.settlement-meta { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #d2c5aa; border-bottom: 1px solid #d2c5aa; padding: 13px 0; gap: 7px; }
 .meta-label { display: block; text-transform: uppercase; color: #9b8b70; letter-spacing: .1em; font-size: 8px; }
 .meta-value { display: block; color: #29384f; font-family: var(--app-font-mono); font-size: 12px; margin-top: 5px; }
 .selection-geography { display: grid; grid-template-columns: 1fr 1.35fr; gap: 10px; padding: 11px 0 1px; }
 .selection-geography span { display: grid; gap: 4px; min-width: 0; }
 .selection-geography small { color: var(--edition-muted); font-family: var(--app-font-mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
 .selection-geography strong { color: var(--edition-ink); font-family: var(--app-font-serif); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.selection-stronghold { border-bottom: 1px solid color-mix(in srgb, var(--edition-border) 72%, transparent); padding: 13px 0 12px; }
+.stronghold-tier-badge { color: var(--edition-primary); font-family: var(--app-font-mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+.stronghold-description { color: var(--edition-muted); font-size: 9px; line-height: 1.45; margin: 0 0 10px; }
+.stronghold-metrics { display: grid; gap: 7px; grid-template-columns: repeat(3, 1fr); margin-bottom: 11px; }
+.stronghold-metrics span { display: grid; gap: 3px; }
+.stronghold-metrics small { color: var(--edition-muted); font-family: var(--app-font-mono); font-size: 8px; text-transform: uppercase; }
+.stronghold-metrics strong { color: var(--edition-player); font-family: var(--app-font-mono); font-size: 11px; }
+.stronghold-upgrade-button { width: 100%; }
 .selection-subheading { align-items: center; display: flex; gap: 8px; justify-content: space-between; margin-bottom: 8px; }
 .selection-subheading .mono { color: var(--edition-muted); font-size: 8px; }
 .selection-economy,
