@@ -355,16 +355,90 @@ export function CampaignCanvas({
     return [...visible.values()];
   }, [regions, spatialIndex]);
 
-  const mapPointFromEvent = (event: PointerEvent<HTMLCanvasElement>) => {
+  const screenPointFromClient = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const bounds = canvas.getBoundingClientRect();
-    const screenX = ((event.clientX - bounds.left) / bounds.width) * VIEW_WIDTH;
-    const screenY = ((event.clientY - bounds.top) / bounds.height) * VIEW_HEIGHT;
+    if (!bounds.width || !bounds.height) return null;
     return {
-      x: screenX / view.scale - view.x,
-      y: screenY / view.scale - view.y,
+      x: ((clientX - bounds.left) / bounds.width) * VIEW_WIDTH,
+      y: ((clientY - bounds.top) / bounds.height) * VIEW_HEIGHT,
     };
+  };
+
+  const mapPointFromClient = (clientX: number, clientY: number, currentView = view) => {
+    const screen = screenPointFromClient(clientX, clientY);
+    if (!screen) return null;
+    return {
+      x: screen.x / currentView.scale - currentView.x,
+      y: screen.y / currentView.scale - currentView.y,
+    };
+  };
+
+  const mapPointFromEvent = (event: PointerEvent<HTMLCanvasElement>) =>
+    mapPointFromClient(event.clientX, event.clientY);
+
+  const hitTest = (point: { x: number; y: number }, currentView: MapView) => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!context) return null;
+    const visibleRegions = getVisibleRegions(currentView);
+    const selectedNeighbors = new Set(
+      selectedId
+        ? [selectedId, ...(regionLookup.get(selectedId)?.adjacent ?? [])]
+        : [],
+    );
+    const visibleBounds = {
+      left: -currentView.x - 240,
+      right: -currentView.x + VIEW_WIDTH / currentView.scale + 240,
+      top: -currentView.y - 180,
+      bottom: -currentView.y + VIEW_HEIGHT / currentView.scale + 180,
+    };
+    const isPointVisible = (candidate: [number, number]) => (
+      candidate[0] >= visibleBounds.left &&
+      candidate[0] <= visibleBounds.right &&
+      candidate[1] >= visibleBounds.top &&
+      candidate[1] <= visibleBounds.bottom
+    );
+
+    for (const front of [...fronts].reverse()) {
+      if (
+        !selectedId ||
+        (front.id !== selectedFrontId &&
+          front.sourceRegionId !== selectedId &&
+          front.targetRegionId !== selectedId)
+      ) continue;
+      const markerX = (front.source[0] + front.target[0]) / 2;
+      const markerY = (front.source[1] + front.target[1]) / 2;
+      if (isPointVisible([markerX, markerY]) && Math.hypot(point.x - markerX, point.y - markerY) <= 28) {
+        return { kind: 'front' as const, id: front.id };
+      }
+    }
+
+    for (const route of [...routes].reverse()) {
+      if (!selectedId || !selectedNeighbors.has(route.partnerRegionId)) continue;
+      if (
+        (isPointVisible(route.source) || isPointVisible(route.target)) &&
+        pointToSegmentDistance(point, route.source, route.target) <= 16
+      ) {
+        return { kind: 'route' as const, id: route.partnerRegionId };
+      }
+    }
+
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    try {
+      for (const region of [...visibleRegions].reverse()) {
+        const path = pathCacheRef.current.get(region.id) ?? new Path2D(region.path);
+        pathCacheRef.current.set(region.id, path);
+        if (context.isPointInPath(path, point.x, point.y)) {
+          return { kind: 'region' as const, id: region.id };
+        }
+      }
+    } finally {
+      context.restore();
+    }
+    return null;
   };
 
   const zoomAt = (
@@ -414,6 +488,12 @@ export function CampaignCanvas({
     if (!selectedRegion) return;
     setView((current) => keepPointVisible(current, selectedRegion.label));
   }, [selectedId, selectedRegion]);
+
+  useEffect(() => () => {
+    pointersRef.current.clear();
+    dragRef.current = null;
+    pinchRef.current = null;
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -750,47 +830,44 @@ export function CampaignCanvas({
     const interactionStartedAt = performance.now();
     const point = mapPointFromEvent(event);
     if (!point) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext('2d');
-    if (!context) return;
-
-    context.save();
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    try {
-      for (const front of [...fronts].reverse()) {
-        const markerX = (front.source[0] + front.target[0]) / 2;
-        const markerY = (front.source[1] + front.target[1]) / 2;
-        if (Math.hypot(point.x - markerX, point.y - markerY) <= 22) {
-          onSelectFront(front.id);
-          setPerformanceStats((current) => ({ ...current, interactionMs: Math.round((performance.now() - interactionStartedAt) * 10) / 10 }));
-          return;
-        }
-      }
-      for (const route of [...routes].reverse()) {
-        if (pointToSegmentDistance(point, route.source, route.target) <= 12) {
-          onSelectRoute(route.partnerRegionId);
-          setPerformanceStats((current) => ({ ...current, interactionMs: Math.round((performance.now() - interactionStartedAt) * 10) / 10 }));
-          return;
-        }
-      }
-      for (const region of [...getVisibleRegions(view)].reverse()) {
-        const path = pathCacheRef.current.get(region.id) ?? new Path2D(region.path);
-        pathCacheRef.current.set(region.id, path);
-        if (context.isPointInPath(path, point.x, point.y)) {
-          onSelect(region.id);
-          setPerformanceStats((current) => ({ ...current, interactionMs: Math.round((performance.now() - interactionStartedAt) * 10) / 10 }));
-          return;
-        }
-      }
-    } finally {
-      context.restore();
+    const hit = hitTest(point, view);
+    if (hit?.kind === 'front') onSelectFront(hit.id);
+    else if (hit?.kind === 'route') onSelectRoute(hit.id);
+    else if (hit?.kind === 'region') onSelect(hit.id);
+    else {
+      onMiss?.();
+      setViewAnnouncement('Nothing is marked at that point. Select a province, front, or highlighted route.');
     }
+    setPerformanceStats((current) => ({
+      ...current,
+      interactionMs: Math.round((performance.now() - interactionStartedAt) * 10) / 10,
+    }));
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
-    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    pointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
+    if (pointersRef.current.size >= 2) {
+      const [first, second] = [...pointersRef.current.values()];
+      const midpoint = {
+        clientX: (first.clientX + second.clientX) / 2,
+        clientY: (first.clientY + second.clientY) / 2,
+      };
+      const anchor = mapPointFromClient(midpoint.clientX, midpoint.clientY, view);
+      if (anchor) {
+        pinchRef.current = {
+          distance: Math.max(1, Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY)),
+          anchorX: anchor.x,
+          anchorY: anchor.y,
+          startView: view,
+        };
+        suppressTapRef.current = true;
+        dragRef.current = null;
+        setIsDragging(true);
+      }
+      return;
+    }
     setIsDragging(false);
     dragRef.current = {
       pointerId: event.pointerId,
@@ -802,8 +879,36 @@ export function CampaignCanvas({
   };
 
   const handlePointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    }
+    if (pinchRef.current && pointersRef.current.size >= 2) {
+      const [first, second] = [...pointersRef.current.values()];
+      const midpoint = {
+        clientX: (first.clientX + second.clientX) / 2,
+        clientY: (first.clientY + second.clientY) / 2,
+      };
+      const screen = screenPointFromClient(midpoint.clientX, midpoint.clientY);
+      if (!screen) return;
+      const pinch = pinchRef.current;
+      const distance = Math.max(1, Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY));
+      const nextScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinch.startView.scale * (distance / pinch.distance)));
+      setView(clampView({
+        scale: nextScale,
+        x: screen.x / nextScale - pinch.anchorX,
+        y: screen.y / nextScale - pinch.anchorY,
+      }));
+      return;
+    }
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      if (event.pointerType === 'mouse' && !isDragging) {
+        const point = mapPointFromEvent(event);
+        const hit = point ? hitTest(point, view) : null;
+        setHoveredRegionId(hit?.kind === 'region' ? hit.id : null);
+      }
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const bounds = canvas.getBoundingClientRect();
@@ -825,14 +930,31 @@ export function CampaignCanvas({
   };
 
   const finishPointer = (event: PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.delete(event.pointerId);
+    if (pinchRef.current) {
+      pinchRef.current = null;
+      dragRef.current = null;
+      setIsDragging(false);
+      suppressTapRef.current = true;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
     dragRef.current = null;
     setIsDragging(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    if (!drag.moved) selectAtPoint(event);
+    if (!drag.moved && !suppressTapRef.current) selectAtPoint(event);
+    suppressTapRef.current = false;
   };
 
   const handleWheel = (event: WheelEvent<HTMLCanvasElement>) => {
@@ -903,6 +1025,7 @@ export function CampaignCanvas({
         onPointerMove={handlePointerMove}
         onPointerUp={finishPointer}
         onPointerCancel={finishPointer}
+         onPointerLeave={() => setHoveredRegionId(null)}
         onWheel={handleWheel}
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -913,6 +1036,7 @@ export function CampaignCanvas({
         data-map-scale={view.scale}
         data-map-x={view.x}
         data-map-y={view.y}
+         data-hovered-region={hoveredRegionId ?? ''}
       />
       <div className="map-compass-indicator" aria-hidden="true">
         <span className="map-compass-arrow">↑</span>
@@ -930,6 +1054,7 @@ export function CampaignCanvas({
             onClick={() => zoomAt(view.scale + ZOOM_STEP)}
             aria-label="Zoom in"
             title="Zoom in"
+             disabled={view.scale >= MAX_ZOOM}
             data-testid="button-map-zoom-in"
           >
             <Plus size={15} />
@@ -941,6 +1066,7 @@ export function CampaignCanvas({
             onClick={() => zoomAt(view.scale - ZOOM_STEP)}
             aria-label="Zoom out"
             title="Zoom out"
+             disabled={view.scale <= MIN_ZOOM}
             data-testid="button-map-zoom-out"
           >
             <Minus size={15} />
