@@ -314,6 +314,233 @@ function drawHouseMarker(context: CanvasRenderingContext2D, x: number, y: number
   context.restore();
 }
 
+// Lightens (positive amount) or darkens (negative) a "#rrggbb"/"#rgb" color for a cheap gradient stop.
+function shade(hex: string, amount: number) {
+  const normalized = hex.replace('#', '');
+  const expanded = normalized.length === 3
+    ? normalized.split('').map((char) => char + char).join('')
+    : normalized;
+  const value = parseInt(expanded, 16);
+  const clamp = (channel: number) => Math.min(255, Math.max(0, channel + amount));
+  const r = clamp((value >> 16) & 255);
+  const g = clamp((value >> 8) & 255);
+  const b = clamp(value & 255);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function seedFromString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return hash;
+}
+
+function mulberry32(seed: number) {
+  let state = seed | 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pathBounds(path: string) {
+  const numbers = path.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [0, 0];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let index = 0; index < numbers.length; index += 2) {
+    const x = numbers[index];
+    const y = numbers[index + 1] ?? x;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+// Deterministic scatter of `count` points inside a region's bounding box, seeded by its id so
+// trees/figures stay put across re-renders instead of jittering, and kept clear of the label.
+function scatterPoints(region: CanvasRegion, count: number, salt: string, clearRadius: number) {
+  const bounds = pathBounds(region.path);
+  const rng = mulberry32(seedFromString(region.id + salt));
+  const points: [number, number][] = [];
+  let attempts = 0;
+  while (points.length < count && attempts < count * 8) {
+    attempts += 1;
+    const x = bounds.minX + rng() * (bounds.maxX - bounds.minX);
+    const y = bounds.minY + rng() * (bounds.maxY - bounds.minY);
+    if (Math.hypot(x - region.label[0], y - region.label[1]) < clearRadius) continue;
+    points.push([x, y]);
+  }
+  return points;
+}
+
+function drawTree(context: CanvasRenderingContext2D, x: number, y: number, palette: CanvasPalette) {
+  context.save();
+  context.globalAlpha = 0.75;
+  context.fillStyle = palette.mutedInk;
+  context.beginPath();
+  context.moveTo(x, y - 6);
+  context.lineTo(x - 3.6, y + 1);
+  context.lineTo(x + 3.6, y + 1);
+  context.closePath();
+  context.fill();
+  context.beginPath();
+  context.moveTo(x, y - 3);
+  context.lineTo(x - 3, y + 3);
+  context.lineTo(x + 3, y + 3);
+  context.closePath();
+  context.fill();
+  context.fillStyle = palette.ink;
+  context.fillRect(x - 0.5, y + 3, 1, 2);
+  context.restore();
+}
+
+function drawHill(context: CanvasRenderingContext2D, x: number, y: number, palette: CanvasPalette) {
+  context.save();
+  context.globalAlpha = 0.6;
+  context.strokeStyle = palette.mutedInk;
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(x - 6, y + 3);
+  context.quadraticCurveTo(x, y - 5, x + 6, y + 3);
+  context.stroke();
+  context.restore();
+}
+
+function drawReed(context: CanvasRenderingContext2D, x: number, y: number, palette: CanvasPalette) {
+  context.save();
+  context.globalAlpha = 0.65;
+  context.strokeStyle = palette.mutedInk;
+  context.lineWidth = 0.9;
+  for (let blade = -1; blade <= 1; blade += 1) {
+    context.beginPath();
+    context.moveTo(x + blade * 2, y + 3);
+    context.quadraticCurveTo(x + blade * 2 + 1.4, y - 2, x + blade * 2 + 2.6, y - 5);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawWave(context: CanvasRenderingContext2D, x: number, y: number, palette: CanvasPalette) {
+  context.save();
+  context.globalAlpha = 0.55;
+  context.strokeStyle = palette.water;
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(x - 5, y);
+  context.quadraticCurveTo(x - 2.5, y - 2.5, x, y);
+  context.quadraticCurveTo(x + 2.5, y + 2.5, x + 5, y);
+  context.stroke();
+  context.restore();
+}
+
+function drawGrassTuft(context: CanvasRenderingContext2D, x: number, y: number, palette: CanvasPalette) {
+  context.save();
+  context.globalAlpha = 0.6;
+  context.strokeStyle = palette.mutedInk;
+  context.lineWidth = 0.8;
+  for (let blade = -1; blade <= 1; blade += 1) {
+    context.beginPath();
+    context.moveTo(x + blade * 1.6, y + 2.5);
+    context.lineTo(x + blade * 2.4, y - 2.5);
+    context.stroke();
+  }
+  context.restore();
+}
+
+const TERRAIN_DECORATORS: Record<
+  NonNullable<CanvasRegion['terrain']>,
+  (context: CanvasRenderingContext2D, x: number, y: number, palette: CanvasPalette) => void
+> = {
+  forest: drawTree,
+  highland: drawHill,
+  marsh: drawReed,
+  coast: drawWave,
+  plains: drawGrassTuft,
+};
+
+function drawTerrainDecoration(context: CanvasRenderingContext2D, region: CanvasRegion, palette: CanvasPalette) {
+  const decorator = region.terrain ? TERRAIN_DECORATORS[region.terrain] : drawGrassTuft;
+  scatterPoints(region, 3, 'terrain', 24).forEach(([x, y]) => decorator(context, x, y, palette));
+}
+
+type FigureRole = 'villager' | 'mayor' | 'forester' | 'soldier';
+
+// Ties the population you see directly to existing data: bigger settlements draw more
+// villagers and a mayor, forested counties get a forester, and any owned/contested county
+// (not neutral) shows at least one soldier, more with a stronger stronghold.
+function figureRoster(region: CanvasRegion): FigureRole[] {
+  const roster: FigureRole[] = [];
+  const villagerCount = region.settlement === 'City' ? 3 : region.settlement === 'Town' ? 2 : 1;
+  for (let index = 0; index < villagerCount; index += 1) roster.push('villager');
+  if (region.settlement !== 'Village') roster.push('mayor');
+  if (region.terrain === 'forest') roster.push('forester');
+  if (region.kind !== 'neutral') roster.push('soldier');
+  if (region.kind !== 'neutral' && (region.strongholdLevel ?? 0) >= 2) roster.push('soldier');
+  return roster;
+}
+
+function drawFigure(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  role: FigureRole,
+  palette: CanvasPalette,
+  accent: string,
+) {
+  context.save();
+  context.globalAlpha = 0.85;
+  context.fillStyle = role === 'mayor' ? accent : role === 'soldier' ? palette.mutedInk : palette.ink;
+  context.beginPath();
+  context.arc(x, y - 4.4, 1.5, 0, Math.PI * 2);
+  context.fill();
+  context.beginPath();
+  context.moveTo(x - 1.8, y);
+  context.lineTo(x + 1.8, y);
+  context.lineTo(x + 1.2, y - 3);
+  context.lineTo(x - 1.2, y - 3);
+  context.closePath();
+  context.fill();
+  if (role === 'soldier') {
+    context.strokeStyle = palette.mutedInk;
+    context.lineWidth = 0.8;
+    context.beginPath();
+    context.moveTo(x + 1.6, y - 6);
+    context.lineTo(x + 1.6, y + 0.5);
+    context.stroke();
+  }
+  if (role === 'mayor') {
+    context.fillStyle = accent;
+    context.beginPath();
+    context.arc(x, y - 6.2, 1, 0, Math.PI * 2);
+    context.fill();
+  }
+  if (role === 'forester') {
+    context.strokeStyle = palette.mutedInk;
+    context.lineWidth = 0.9;
+    context.beginPath();
+    context.moveTo(x - 1.6, y - 1);
+    context.lineTo(x - 3, y + 1.2);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawPopulace(context: CanvasRenderingContext2D, region: CanvasRegion, palette: CanvasPalette, accent: string) {
+  const roster = figureRoster(region);
+  const points = scatterPoints(region, roster.length, 'populace', 20);
+  roster.forEach((role, index) => {
+    const point = points[index];
+    if (point) drawFigure(context, point[0], point[1], role, palette, accent);
+  });
+}
+
 export function CampaignCanvas({
   id,
   regions,
@@ -569,7 +796,10 @@ export function CampaignCanvas({
         0,
       );
       context.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
-      context.fillStyle = palette.water;
+      const waterGradient = context.createLinearGradient(0, 0, 0, VIEW_HEIGHT);
+      waterGradient.addColorStop(0, shade(palette.water, 12));
+      waterGradient.addColorStop(1, shade(palette.water, -16));
+      context.fillStyle = waterGradient;
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
       const visibleRegions = getVisibleRegions(view);
@@ -598,7 +828,10 @@ export function CampaignCanvas({
          ? coastlineCacheRef.current.path
          : new Path2D(coastlinePath);
        coastlineCacheRef.current = { source: coastlinePath, path: coastline };
-      context.fillStyle = palette.land;
+      const landGradient = context.createLinearGradient(0, 0, 0, WORLD_HEIGHT);
+      landGradient.addColorStop(0, shade(palette.land, 10));
+      landGradient.addColorStop(1, shade(palette.land, -12));
+      context.fillStyle = landGradient;
       context.strokeStyle = palette.road;
       context.lineWidth = detailTier === 'overview' ? 8 : 5;
       context.globalAlpha = 0.92;
@@ -747,50 +980,25 @@ export function CampaignCanvas({
             label.x,
             label.y + (label.lines.length - 1) * 7.5 + 25,
           );
-          context.save();
-          context.strokeStyle = palette.mutedInk;
-          context.fillStyle = palette.mutedInk;
-          context.globalAlpha = 0.66;
-          context.lineWidth = 1.2;
-          const terrainX = region.label[0] + 22;
-          const terrainY = region.label[1] - 20;
-          if (region.terrain === 'forest') {
-            for (let tree = -1; tree <= 1; tree += 1) {
-              context.beginPath();
-              context.moveTo(terrainX + tree * 6, terrainY + 5);
-              context.lineTo(terrainX + tree * 6 - 4, terrainY - 3);
-              context.lineTo(terrainX + tree * 6 + 4, terrainY - 3);
-              context.closePath();
-              context.stroke();
-            }
-          } else if (region.terrain === 'highland') {
-            context.beginPath();
-            context.moveTo(terrainX - 7, terrainY + 5);
-            context.lineTo(terrainX, terrainY - 5);
-            context.lineTo(terrainX + 7, terrainY + 5);
-            context.stroke();
-          } else if (region.terrain === 'coast') {
-            context.beginPath();
-            context.arc(terrainX, terrainY, 6, 0, Math.PI);
-            context.stroke();
-            context.beginPath();
-            context.arc(terrainX, terrainY + 4, 6, Math.PI, Math.PI * 2);
-            context.stroke();
-          } else if (region.terrain === 'marsh') {
-            context.beginPath();
-            context.moveTo(terrainX - 7, terrainY - 2);
-            context.quadraticCurveTo(terrainX - 2, terrainY + 4, terrainX + 3, terrainY - 2);
-            context.quadraticCurveTo(terrainX + 6, terrainY - 5, terrainX + 8, terrainY);
-            context.stroke();
-          } else {
-            context.beginPath();
-            context.arc(terrainX, terrainY, 4, 0, Math.PI * 2);
-            context.stroke();
-          }
+          drawTerrainDecoration(context, region, palette);
+          drawPopulace(
+            context,
+            region,
+            palette,
+            region.kind === 'player'
+              ? bannerColor
+              : region.kind === 'rival'
+                ? getHouse(region.houseId)?.accent ?? palette.rival
+                : palette.mutedInk,
+          );
           if (region.landmark) {
-            context.strokeRect(terrainX + 10, terrainY - 4, 8, 8);
+            context.save();
+            context.strokeStyle = palette.mutedInk;
+            context.globalAlpha = 0.66;
+            context.lineWidth = 1.2;
+            context.strokeRect(region.label[0] + 32, region.label[1] - 24, 8, 8);
+            context.restore();
           }
-          context.restore();
         }
 
         if (region.kind === 'player') {
