@@ -100,6 +100,7 @@ import {
   normalizeExpansionSelection,
   type ExpansionSelection,
 } from '@/expansion-packs';
+import { HOUSES, getHouse, houseIdForRegionId, type HousePersonality } from '@/houses';
 
 type Banner = { name: string; color: string; secondary: string };
 type RegionKind = 'player' | 'rival' | 'bandit' | 'neutral';
@@ -121,6 +122,7 @@ type Region = {
   label: [number, number];
   strongholdLevel?: StrongholdLevel;
   banditPressure?: number;
+  houseId?: string;
 };
 type FrontStatus = 'staged' | 'marching' | 'arrived' | 'resolved';
 type Front = {
@@ -282,6 +284,7 @@ const baseRegions: Region[] = [
     id: 'bracken',
     name: 'Bracken March',
     kind: 'rival',
+    houseId: 'house-bracken',
     settlement: 'Town',
     forces: 62,
     barracks: true,
@@ -318,6 +321,7 @@ const baseRegions: Region[] = [
     id: 'ironwood',
     name: 'Ironwood',
     kind: 'rival',
+    houseId: 'house-ironwood',
     settlement: 'Town',
     forces: 76,
     barracks: true,
@@ -330,6 +334,7 @@ const baseRegions: Region[] = [
     id: 'northwatch',
     name: 'Northwatch',
     kind: 'rival',
+    houseId: 'house-northwatch',
     settlement: 'City',
     forces: 106,
     barracks: true,
@@ -458,6 +463,7 @@ const frontierRegions: Region[] = frontierDescriptors.map((descriptor) => ({
   chunkId: chunkIdForPoint(descriptor.x + 110, descriptor.y + 85),
   name: descriptor.name,
   kind: descriptor.kind,
+  houseId: descriptor.kind === 'rival' ? houseIdForRegionId(descriptor.id) : undefined,
   settlement: descriptor.settlement,
   forces: descriptor.forces,
   barracks: descriptor.settlement !== 'Village',
@@ -1095,6 +1101,88 @@ function resolveBanditTurn(regions: Region[], turn: number): BanditTurnResult {
         : region,
     ),
     notices: [`The Blackroad Camp gathered ${camp.name}'s raiders behind its growing border.`],
+  };
+}
+
+const HOUSE_AMBITION_GRACE_END_TURN = 3;
+const HOUSE_GARRISON_COST_RATE = 0.1;
+const HOUSE_GARRISON_COST_CAP = 6;
+const HOUSE_CONQUEST_SURVIVAL_RATE = 0.6;
+const HOUSE_CONQUEST_MIN_SURVIVORS = 4;
+const HOUSE_PERSONALITY_ODDS_THRESHOLD: Record<HousePersonality, number> = {
+  aggressive: 1.15,
+  expansionist: 1.2,
+  opportunist: 1.35,
+  defensive: 1.6,
+};
+const HOUSE_PERSONALITY_PRIORITY: Record<HousePersonality, number> = {
+  aggressive: 30,
+  expansionist: 24,
+  opportunist: 12,
+  defensive: 4,
+};
+
+type HouseTurnResult = {
+  regions: Region[];
+  notices: string[];
+};
+
+// Rival counties are grouped into named Houses (src/houses.ts) that each act on their own
+// ambition once per turn: annexing a weaker adjacent open county at a manpower cost. This is
+// deliberately budgeted to one action across ALL houses per turn (same pacing discipline as
+// resolveRivalTurn/resolveBanditTurn above) so the frontier evolves without snowballing.
+function resolveHouseAmbitionTurn(regions: Region[], turn: number): HouseTurnResult {
+  if (turn <= HOUSE_AMBITION_GRACE_END_TURN) return { regions, notices: [] };
+
+  const byId = new Map(regions.map((region) => [region.id, region]));
+
+  const candidates = HOUSES.flatMap((house) => {
+    const threshold = HOUSE_PERSONALITY_ODDS_THRESHOLD[house.personality];
+    const members = regions.filter(
+      (region) => region.kind === 'rival' && (region.houseId ?? houseIdForRegionId(region.id)) === house.id,
+    );
+    return members.flatMap((member) =>
+      member.adjacent
+        .map((id) => byId.get(id))
+        .filter((neighbor): neighbor is Region => Boolean(neighbor && neighbor.kind === 'neutral'))
+        .filter((neighbor) => member.forces >= neighbor.forces * threshold)
+        .map((target) => ({
+          house,
+          member,
+          target,
+          priority: HOUSE_PERSONALITY_PRIORITY[house.personality] + (member.forces - target.forces),
+        })),
+    );
+  }).sort((first, second) =>
+    second.priority - first.priority ||
+    first.house.id.localeCompare(second.house.id) ||
+    first.target.id.localeCompare(second.target.id),
+  );
+
+  const selected = candidates[0];
+  if (!selected) return { regions, notices: [] };
+
+  const garrisonCost = Math.min(HOUSE_GARRISON_COST_CAP, Math.floor(selected.member.forces * HOUSE_GARRISON_COST_RATE));
+  const survivorForces = Math.max(
+    HOUSE_CONQUEST_MIN_SURVIVORS,
+    Math.round(selected.target.forces * HOUSE_CONQUEST_SURVIVAL_RATE),
+  );
+
+  const nextRegions = regions.map((region) => {
+    if (region.id === selected.target.id) {
+      return { ...region, kind: 'rival' as const, houseId: selected.house.id, forces: survivorForces };
+    }
+    if (region.id === selected.member.id) {
+      return { ...region, forces: Math.max(1, region.forces - garrisonCost) };
+    }
+    return region;
+  });
+
+  return {
+    regions: nextRegions,
+    notices: [
+      `${selected.house.name} pressed its claim on ${selected.target.name}; the open county now flies its banner. ${selected.house.tagline}`,
+    ],
   };
 }
 
@@ -2947,7 +3035,9 @@ function App() {
     nextRegions = rivalTurn.regions;
     const banditTurn = resolveBanditTurn(nextRegions, nextTurn);
     nextRegions = banditTurn.regions;
-    const turnNotices = [...banditTurn.notices, ...rivalTurn.notices, ...frontNotices];
+    const houseTurn = resolveHouseAmbitionTurn(nextRegions, nextTurn);
+    nextRegions = houseTurn.regions;
+    const turnNotices = [...banditTurn.notices, ...rivalTurn.notices, ...houseTurn.notices, ...frontNotices];
     const event = makeCampaignEvent(campaign, nextTurn, nextRegions, nextFronts, nextRoutes);
     const expiredRoutes = nextRoutes.filter((route) => route.status === 'expired').length;
     const income = campaign.regions.filter((region) => region.kind === 'player').length * (24 + archetype.modifiers.turnGoldBonus);
@@ -2967,6 +3057,7 @@ function App() {
         frontNotices.length ? `Army movements: ${frontNotices.join(' ')}` : 'Army movements: no fronts changed position.',
         rivalTurn.notices.length ? `Rival activity: ${rivalTurn.notices.join(' ')}` : 'Rival activity: no visible border action.',
         banditTurn.notices.length ? `Bandit activity: ${banditTurn.notices.join(' ')}` : 'Bandit activity: no visible camp action.',
+        houseTurn.notices.length ? `Houses: ${houseTurn.notices.join(' ')}` : 'Houses: the frontier lords made no visible move.',
         expiredTreaties.length
           ? `Court: ${treatyExpiryNotices.join(' ')}`
           : diplomacyEnabled
@@ -3334,7 +3425,12 @@ function App() {
                   <>
                     <div className="selection-top">
                       <div><div className="panel-kicker">Province dossier</div><h2 className="selection-name" data-testid={`text-selected-region-${selected.id}`}>{selected.name}</h2></div>
-                      <span className={`territory-badge ${selected.kind}`}>{regionKindLabel(selected.kind)}</span>
+                      <span className={`territory-badge ${selected.kind}`}>
+                        {regionKindLabel(selected.kind)}
+                        {selected.kind === 'rival'
+                          ? ` · ${getHouse(selected.houseId ?? houseIdForRegionId(selected.id))?.name ?? 'Unaligned rival'}`
+                          : ''}
+                      </span>
                     </div>
                     <p className="selection-description">{selected.description}</p>
                     <div className="settlement-meta">
@@ -3347,6 +3443,12 @@ function App() {
                       <span><small>Political type</small><strong>{selected.kind === 'bandit' ? 'Bandit camp' : selected.kind === 'rival' ? 'Nation-state rival' : selected.kind === 'player' ? 'Your nation' : 'Open county'}</strong></span>
                       <span><small>Terrain</small><strong>{selected.terrain ? selected.terrain : 'Open country'}</strong></span>
                       <span><small>Landmark</small><strong>{selected.landmark ?? 'No landmark recorded'}</strong></span>
+                      {selected.kind === 'rival' ? (
+                        <span data-testid={`value-house-${selected.id}`}>
+                          <small>House</small>
+                          <strong>{getHouse(selected.houseId ?? houseIdForRegionId(selected.id))?.name ?? 'Unaligned rival'}</strong>
+                        </span>
+                      ) : null}
                     </div>
                     {selected.banditPressure ? (
                       <p className="selection-pressure" data-testid={`text-bandit-pressure-${selected.id}`}>

@@ -2,3 +2,4 @@
 - [Campaign events](campaign-events.md) — Resolve one authored, save-safe decision after each turn without making combat mandatory.
 - [Territorial layers](territorial-layers.md) — Keep counties, settlements, barracks, strongholds, and political owners distinct as the world expands.
 - [Fortification tradeoffs](fortification-tradeoffs.md) — Upper tiers should trade treasury and field capacity for defense while preserving a viable peaceful path.
+- [Rival houses](rival-houses.md) — Group rival counties into named, personality-driven Houses that act once per turn budget-wide, not a single undifferentiated "rival" actor.

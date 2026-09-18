@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
+import { getHouse } from '@/houses';
 
 export type CanvasRegion = {
   id: string;
@@ -22,6 +23,7 @@ export type CanvasRegion = {
   path: string;
   label: [number, number];
   strongholdLevel?: 0 | 1 | 2 | 3;
+  houseId?: string;
 };
 
 export type CanvasFront = {
@@ -297,6 +299,18 @@ function drawStrongholdMarker(
     context.arc(x - (level - 1) * 2.5 + index * 5, y + size * 0.9, 1.3, 0, Math.PI * 2);
     context.fill();
   }
+  context.restore();
+}
+
+function drawHouseMarker(context: CanvasRenderingContext2D, x: number, y: number, accent: string) {
+  context.save();
+  context.beginPath();
+  context.arc(x, y, 4, 0, Math.PI * 2);
+  context.fillStyle = accent;
+  context.fill();
+  context.lineWidth = 1;
+  context.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+  context.stroke();
   context.restore();
 }
 
@@ -692,6 +706,10 @@ export function CampaignCanvas({
           context.fill();
           context.restore();
           drawStrongholdMarker(context, region.label[0] - 14, region.label[1] - 14, region.strongholdLevel ?? 0, palette);
+          if (region.kind === 'rival' && region.houseId) {
+            const house = getHouse(region.houseId);
+            if (house) drawHouseMarker(context, region.label[0] + 10, region.label[1] - 14, house.accent);
+          }
           return;
         }
 
@@ -807,6 +825,10 @@ export function CampaignCanvas({
           context.stroke();
         }
         drawStrongholdMarker(context, region.label[0] - 24, region.label[1] - 20, region.strongholdLevel ?? 0, palette);
+        if (region.kind === 'rival' && region.houseId) {
+          const house = getHouse(region.houseId);
+          if (house) drawHouseMarker(context, region.label[0] + 24, region.label[1] - 20, house.accent);
+        }
         context.restore();
       });
 
